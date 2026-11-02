@@ -195,6 +195,17 @@ class OverlayService : Service() {
         val g0 = abs(gridLp); val rf0 = abs(rowLp); val cf0 = abs(colLp)
         val views = listOf(grid, rowF, colF, bar, bubble)
         val vis = views.map { it.visibility }
+        // asas visibles antes de ocultar: si siguen en la captura, el fotograma es anterior a ocultar (sucio)
+        val hs = (30 * resources.displayMetrics.density).toInt()
+        val handles = listOf(Triple(rowF, rowLp, 0xE65100), Triple(colF, colLp, 0x2E7D32), Triple(grid, gridLp, 0x1565C0))
+            .filter { (v, _, _) -> v.visibility == View.VISIBLE && (v as MovableView).editable }
+            .map { (_, l, c) -> val r = abs(l); CaptureCheck.Handle(r.right - hs, r.bottom - hs, r.right, r.bottom, c) }
+        fun dirty(b: Bitmap): Boolean {
+            if (handles.isEmpty()) return false
+            val w = b.width; val h = b.height; val px = IntArray(w * h); b.getPixels(px, 0, w, 0, 0, w, h)
+            return CaptureCheck.overlayVisible(px, w, h, handles)
+        }
+        var dirtyFrames = 0
         runCatching { reader?.acquireLatestImage()?.close() }
         views.forEach { it.visibility = View.INVISIBLE; it.alpha = 0f }
         // solo fotogramas compuestos después de ocultar (2 vsync de margen); si la pantalla está quieta
@@ -207,14 +218,18 @@ class OverlayService : Service() {
             val got = try { grab() } catch (e: Throwable) { views.forEachIndexed { i, v -> v.visibility = vis[i]; v.alpha = 1f }; fail("captura", e); return }
             var bmp: Bitmap? = null
             if (got != null) {
-                any = got.first
-                if (got.second >= hiddenAt + 34_000_000L) bmp = got.first else if (got.second >= hiddenAt) early = got.first
+                if (dirty(got.first)) dirtyFrames++ // con la superposición encima: nunca sirve
+                else {
+                    any = got.first
+                    if (got.second >= hiddenAt + 34_000_000L) bmp = got.first else if (got.second >= hiddenAt) early = got.first
+                }
             }
-            if (bmp == null && tries++ < 15) { main.postDelayed({ attempt() }, 100); return }
-            captureKind = if (bmp != null) "limpia" else if (early != null) "temprana" else "sin-marca"
+            if (bmp == null && tries++ < 25) { main.postDelayed({ attempt() }, 100); return }
+            captureKind = (if (bmp != null) "limpia" else if (early != null) "temprana" else if (any != null) "sin-marca" else "sucia") +
+                (if (dirtyFrames > 0) " descartadas=$dirtyFrames" else "")
             if (bmp == null) bmp = early ?: any
             views.forEachIndexed { i, v -> v.visibility = vis[i]; v.alpha = 1f }
-            if (bmp == null) { done("Sin captura"); return }
+            if (bmp == null) { done(if (dirtyFrames > 0) "La captura salió con los marcos encima; vuelve a leer" else "Sin captura"); return }
             Thread { analyze(bmp, g0, rf0, cf0, ox, oy) }.start()
         }
         main.postDelayed({ attempt() }, 300)

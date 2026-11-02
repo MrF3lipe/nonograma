@@ -53,3 +53,7 @@ Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest
 - Si las pistas siguen sin ser válidas, repite la captura sola (hasta 3) y deduce líneas ilegibles cuando la solución es única.
 - errores.log guarda las pistas tal como se leyeron y el tipo de captura.
 - Actualización: reintenta la descarga si github.com no responde y, si el parche falla, baja la APK completa.
+
+## 1.0.7
+- Captura sucia descartada: si en el fotograma aún se ven las asas de los marcos (F/C) o del cuadro de solución, no se lee y se espera a otro. Con la superposición encima las pistas de filas salían mal (un `4` pegado al borde del marco se leía `2`, las dos últimas filas quedaban bajo el asa y la 18 se corría).
+- errores.log indica cuántos fotogramas sucios se descartaron.

@@ -15,7 +15,7 @@ class PipelineAllTest {
 
     companion object {
         /** Nonogramas que deben salir con pistas válidas y resueltas. */
-        val MUST_PASS = setOf("juego.jpg", "juego2.jpg", "tg-1526.jpg", "tg-1534.jpg", "tg-1535.jpg", "tg-1536.jpg", "tg-1537.jpg", "tg-1538.jpg", "tg-1539.jpg")
+        val MUST_PASS = setOf("juego.jpg", "juego2.jpg", "tg-1526.jpg", "tg-1534.jpg", "tg-1535.jpg", "tg-1536.jpg", "tg-1537.jpg", "tg-1538.jpg", "tg-1539.jpg", "tg-1557.jpg")
         /** Capturas que no son nonogramas: nunca deben dar pistas "válidas". */
         val NOT_PUZZLE = setOf("tg-667.jpg")
         /**
@@ -49,6 +49,20 @@ class PipelineAllTest {
             println("mezcla $t: ok=${o.ok} intentos=${o.attempts}")
             assertTrue("mezcla $t", o.ok)
         }
+    }
+
+    /** tg-1557: captura limpia del puzzle que en tg-1554 salió mal (con la superposición encima): pistas exactas. */
+    @Test fun cleanCapture1557() {
+        val f = File("/home/box/telegram-relay/media/tg-1557.jpg"); if (!f.exists()) return
+        val im = ImageIO.read(f); val w = im.width; val h = im.height; val px = im.getRGB(0, 0, w, h, null, 0, w)
+        val g = GridDetect.detect(px, w, h, 8)!!
+        val o = CluePipeline.run(px, w, h, g.left, g.top, g.right, g.bottom, 0, 0, g.rows, g.cols)!!
+        assertTrue(o.ok)
+        val rows = o.rows.map { l -> l.joinToString(" ") { it.len.toString() } }
+        assertEquals("1 3 6 4", rows[4]); assertEquals("1 3 6 4", rows[5]); assertEquals("1 1 2 6 1 4", rows[6])
+        assertEquals("1 1 2 5 2 4", rows[8]); assertEquals("2 3 2 1 1 2", rows[17]); assertEquals("4 3 1 1 2", rows[18]); assertEquals("6 9", rows[19])
+        assertEquals(275, o.rows.sumOf { l -> l.sumOf { it.len } })
+        assertEquals(275, o.cols.sumOf { l -> l.sumOf { it.len } })
     }
 
     @Test fun allImages() {

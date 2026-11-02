@@ -50,6 +50,8 @@ class OverlayService : Service() {
     private lateinit var barLp: WindowManager.LayoutParams
     private lateinit var lockBtn: TextView
     private lateinit var modeBtn: TextView
+    private lateinit var playBtn: TextView
+    private var playing = false
     private lateinit var grid: GridView
     private lateinit var gridLp: WindowManager.LayoutParams
     private lateinit var rowF: FrameView
@@ -72,6 +74,7 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         instance = null
+        AutoTapService.instance?.stop()
         stopProjection()
         if (built) listOf(bubble, bar, grid, rowF, colF).forEach { runCatching { wm.removeView(it) } }
         Store.save(this)
@@ -173,7 +176,7 @@ class OverlayService : Service() {
     }
 
     fun read() {
-        if (busy) return
+        if (busy || playing) return
         if (projection == null) {
             startActivity(Intent(this, ProjectionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(EXTRA_READ, true))
             return
@@ -231,9 +234,17 @@ class OverlayService : Service() {
             }
             stage = "ocr"
             val seg = if (sized) ClueReader.readSegmented(bmp, g, rf, cf, rows, cols) else null
-            val res = if (seg != null && seg.tokens > 0) seg else ClueReader.read(bmp, g, rf, cf, rows, cols, infer = !sized)
+            val res = if (seg != null && seg.tokens > 0) seg else checked(ClueReader.read(bmp, g, rf, cf, rows, cols, infer = !sized))
             main.post { applyRead(res, g, rf, cf, ox, oy) }
         } catch (e: Throwable) { fail(stage, e) }
+    }
+
+    /** Lectura de respaldo (ML Kit directo): validar también, para no mostrar pistas inválidas como buenas. */
+    private fun checked(r: ClueReader.Read): ClueReader.Read {
+        if (r.tokens == 0) return r
+        val k = CluePipeline.validate(r.rowClues, r.colClues, null, null, 1500)
+        return if (k.ok) r else ClueReader.Read(r.rows, r.cols, r.rowClues, r.colClues, r.palette, r.colorDetected, r.tokens, false,
+            k.badRows.ifEmpty { r.rowClues.indices.toSet() }, k.badCols.ifEmpty { r.colClues.indices.toSet() })
     }
 
     /** Segundo intento: buscar la rejilla solo dentro (y alrededor) del cuadro actual. */
@@ -267,11 +278,19 @@ class OverlayService : Service() {
         Store.colorMode = r.colorDetected
         Store.palette.clear(); Store.palette.addAll(r.palette)
         Store.solution = null
+        Store.gridScreen = Rect(g)
+        Store.doubtRows.clear(); Store.doubtCols.clear()
+        Store.doubtRows.addAll(r.doubtRows); Store.doubtCols.addAll(r.doubtCols)
         updateModeChip()
         grid.invalidate()
         Toast.makeText(this, "${r.rows}×${r.cols} · ${r.tokens}", Toast.LENGTH_SHORT).show()
         ErrorLog.write(this, "lectura", RuntimeException("${r.rows}x${r.cols} tokens=${r.tokens} ${ClueReader.lastStats}"))
         if (r.tokens == 0) { done(null); openEditor(); return }
+        if (!r.valid) {
+            // tras los reintentos las pistas siguen sin ser resolubles: no resolver, marcar líneas dudosas
+            ErrorLog.write(this, "pistas", RuntimeException("no válidas tras reintentos; dudosas filas=${r.doubtRows.map { it + 1 }.sorted()} columnas=${r.doubtCols.map { it + 1 }.sorted()} ${ClueReader.lastStats}"))
+            Store.save(this); done(null); openEditor(); return
+        }
         Thread {
             val st = try { Store.solveNow() } catch (e: Throwable) { fail("resolver", e); return@Thread }
             main.post {
@@ -330,6 +349,7 @@ class OverlayService : Service() {
         modeBtn = btn("Auto") { cycleMode() }
         btn("Leer") { read() }
         btn("Editar") { openEditor() }
+        playBtn = btn("▶") { togglePlay() }
         lockBtn = btn("🔓") { setLocked(!Store.locked) }
         btn("Ocultar") { hide() }
         btn("✕") { stopSelf() }
@@ -352,6 +372,48 @@ class OverlayService : Service() {
         placeBar()
         updateGlyph()
         updateModeChip()
+    }
+
+    // ---------- Autoresolver ----------
+    private fun togglePlay() { if (playing) stopPlay() else startPlay() }
+
+    private fun startPlay() {
+        if (busy) return
+        if (!AutoTapService.enabled(this)) {
+            // pedir el permiso de accesibilidad antes de empezar
+            startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        }
+        busy = true
+        Thread {
+            // solo con pistas que se resuelven; si no, no se toca nada
+            val st = try { if (Store.solution == null || Store.solH != Store.rows || Store.solW != Store.cols) Store.solveNow() else Solver.Status.SOLVED } catch (e: Throwable) { Solver.Status.INVALID }
+            main.post {
+                busy = false
+                // geometría de la cuadrícula detectada (o la ajustada a mano si la rejilla está visible)
+                val g = if (grid.visibility == View.VISIBLE && grid.width > 0) screenRect(grid) else Store.gridScreen
+                val color = Store.effectiveColor()
+                val rc = Store.rowClues.map { l -> l.map { if (color) it else Block(it.len, 1) } }
+                val cc = Store.colClues.map { l -> l.map { if (color) it else Block(it.len, 1) } }
+                val taps = if (st == Solver.Status.SOLVED) AutoPlan.taps(rc, cc, Store.solution, Store.rows, Store.cols, g.left, g.top, g.right, g.bottom) else emptyList()
+                val svc = AutoTapService.instance
+                if (taps.isEmpty() || svc == null) { updateGlyph(); if (st != Solver.Status.SOLVED) openEditor(); return@post }
+                playing = true; playBtn.text = "■"
+                // la superposición no debe recibir los toques: rejilla no táctil y barra oculta
+                setLocked(true); grid.visibility = View.GONE
+                updateGlyph()
+                svc.play(taps, Store.tapMs.toLong(), onStep = {}, onEnd = { main.post { endPlay() } })
+            }
+        }.start()
+    }
+
+    private fun stopPlay() { AutoTapService.instance?.stop(); endPlay() }
+
+    private fun endPlay() {
+        if (!playing) return
+        playing = false; playBtn.text = "▶"
+        if (shown) grid.visibility = View.VISIBLE
+        updateGlyph()
     }
 
     private fun cycleMode() {
@@ -379,6 +441,7 @@ class OverlayService : Service() {
 
     private fun onBubble() {
         when {
+            playing -> stopPlay()
             !shown -> { show(); if (Store.locked) setLocked(false) }
             Store.locked -> setLocked(false)
             else -> setLocked(true)
@@ -415,6 +478,7 @@ class OverlayService : Service() {
 
     private fun updateGlyph() {
         if (busy) return
+        if (playing) { bubble.glyph = "■"; return }
         bubble.glyph = when { !shown -> "▦"; Store.locked -> "🔒"; else -> "🔓" }
     }
 

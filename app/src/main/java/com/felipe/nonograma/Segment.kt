@@ -40,7 +40,7 @@ object Segment {
     }
 
     /** Mapa de tinta 0..1 normalizado por contraste (sirve para texto claro sobre oscuro y viceversa). */
-    fun ink(px: IntArray, w: Int, x0: Int, y0: Int, x1: Int, y1: Int): Ink? {
+    fun ink(px: IntArray, w: Int, x0: Int, y0: Int, x1: Int, y1: Int, loF: Float = 0.30f, hiF: Float = 0.65f): Ink? {
         val l = max(0, x0); val t = max(0, y0); val r = min(w, x1); val b = min(px.size / w, y1)
         if (r - l < 2 || b - t < 2) return null
         val bg = background(px, w, l, t, r, b)
@@ -48,7 +48,7 @@ object Segment {
         val d = IntArray(iw * ih); var mx = 0
         for (y in 0 until ih) for (x in 0 until iw) { val v = dist(px[(t + y) * w + l + x], bg); d[y * iw + x] = v; if (v > mx) mx = v }
         if (mx < 150) return Ink(iw, ih, l, t, FloatArray(iw * ih), px) // sin texto
-        val lo = mx * 0.30f; val hi = mx * 0.65f
+        val lo = mx * loF; val hi = mx * hiF
         val a = FloatArray(iw * ih) { ((d[it] - lo) / (hi - lo)).coerceIn(0f, 1f) }
         return Ink(iw, ih, l, t, a, px)
     }
@@ -59,6 +59,19 @@ object Segment {
             if (p[i] > minVal) { if (s < 0) s = i } else if (s >= 0) { out.add(intArrayOf(s, i)); s = -1 }
         }
         if (s >= 0) out.add(intArrayOf(s, p.size))
+        return out
+    }
+
+    /** Separa runs demasiado anchos para un dígito (dígitos pegados, p. ej. "16") por el mínimo del perfil. */
+    fun splitWide(p: FloatArray, rs: List<IntArray>, h: Int): List<IntArray> {
+        val out = ArrayList<IntArray>()
+        for (r in rs) {
+            val wdt = r[1] - r[0]
+            if (wdt <= h * 0.95f || wdt < 5) { out.add(r); continue }
+            val a = r[0] + maxOf(1, (wdt * 0.2f).toInt()); val b = r[1] - maxOf(1, (wdt * 0.2f).toInt())
+            var m = a; for (x in a until b) if (p[x] < p[m]) m = x
+            out.add(intArrayOf(r[0], m)); out.add(intArrayOf(m + 1, r[1]))
+        }
         return out
     }
 
@@ -87,9 +100,9 @@ object Segment {
     }
 
     /** Glifos de una banda de fila (izquierda→derecha). Recorta 15 % arriba/abajo para evitar separadores. */
-    fun rowGlyphs(px: IntArray, w: Int, x0: Int, y0: Int, x1: Int, y1: Int): List<Glyph> {
-        val inset = (y1 - y0) * 0.12f
-        val ink = ink(px, w, x0, (y0 + inset).toInt(), x1, (y1 - inset).toInt()) ?: return emptyList()
+    fun rowGlyphs(px: IntArray, w: Int, x0: Int, y0: Int, x1: Int, y1: Int, insetF: Float = 0.12f, loF: Float = 0.30f, hiF: Float = 0.65f): List<Glyph> {
+        val inset = (y1 - y0) * insetF
+        val ink = ink(px, w, x0, (y0 + inset).toInt(), x1, (y1 - inset).toInt(), loF, hiF) ?: return emptyList()
         val col = FloatArray(ink.w)
         for (y in 0 until ink.h) for (x in 0 until ink.w) col[x] += ink.a[y * ink.w + x]
         val out = ArrayList<Glyph>()
@@ -108,21 +121,25 @@ object Segment {
     }
 
     /** Glifos de una franja de columna (arriba→abajo); cada fila de texto puede tener varios dígitos. */
-    fun colGroupsRaw(px: IntArray, w: Int, x0: Int, y0: Int, x1: Int, y1: Int): List<List<Glyph>> {
-        val inset = (x1 - x0) * 0.14f
-        val ink = ink(px, w, (x0 + inset).toInt(), y0, (x1 - inset).toInt(), y1) ?: return emptyList()
+    fun colGroupsRaw(px: IntArray, w: Int, x0: Int, y0: Int, x1: Int, y1: Int, insetF: Float = 0.14f, loF: Float = 0.30f, hiF: Float = 0.65f): List<List<Glyph>> {
+        // ventana interior (sin las líneas separadoras) para encontrar las líneas de texto, y ventana más
+        // ancha para no recortar números que se salen de la celda (p. ej. "20" en la última columna).
+        val inset = (x1 - x0) * insetF
+        val outer = (x1 - x0) * minOf(insetF, 0.14f) * 0.25f
+        val ink = ink(px, w, (x0 + outer).toInt(), y0, (x1 - outer).toInt(), y1, loF, hiF) ?: return emptyList()
+        val inL = ((x0 + inset).toInt() - ink.left).coerceIn(0, ink.w); val inR = ((x1 - inset).toInt() - ink.left).coerceIn(inL, ink.w)
         val rowP = FloatArray(ink.h)
-        for (y in 0 until ink.h) for (x in 0 until ink.w) rowP[y] += ink.a[y * ink.w + x]
+        for (y in 0 until ink.h) for (x in inL until inR) rowP[y] += ink.a[y * ink.w + x]
         val cellW = x1 - x0
         val out = ArrayList<List<Glyph>>()
         for (r in runs(rowP, 0.6f)) {
             val hgt = r[1] - r[0]
             if (hgt < cellW * 0.2f || hgt > cellW * 1.5f) continue
-            // sub-imagen de esa línea → glifos por columnas
+            // sub-imagen de esa línea → glifos por columnas (solo los que tocan la ventana interior)
             val sub = Ink(ink.w, hgt, ink.left, ink.top + r[0], FloatArray(ink.w * hgt) { ink.a[(r[0] + it / ink.w) * ink.w + it % ink.w] }, px)
             val colP = FloatArray(sub.w)
             for (y in 0 until sub.h) for (x in 0 until sub.w) colP[x] += sub.a[y * sub.w + x]
-            val gl = runs(colP, 0.6f).mapNotNull { glyphOf(sub, it[0], it[1], w) }
+            val gl = splitWide(colP, runs(colP, 0.6f), hgt).filter { it[1] > inL && it[0] < inR }.mapNotNull { glyphOf(sub, it[0], it[1], w) }
             if (gl.isNotEmpty()) out.add(gl)
         }
         return out

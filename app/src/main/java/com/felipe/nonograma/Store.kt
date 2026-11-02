@@ -19,6 +19,11 @@ object Store {
     var rowClues: MutableList<MutableList<Block>> = MutableList(15) { mutableListOf() }
     var colClues: MutableList<MutableList<Block>> = MutableList(15) { mutableListOf() }
     var solution: IntArray? = null
+    /** Líneas que la lectura no pudo validar (se marcan en el editor). */
+    val doubtRows = HashSet<Int>(); val doubtCols = HashSet<Int>()
+    /** Rejilla detectada en coordenadas reales de pantalla (para el autoresolver) y ms entre toques. */
+    var gridScreen = Rect()
+    var tapMs = 150
     var solH = 0; var solW = 0
     var grid = Rect(); var rowFrame = Rect(); var colFrame = Rect()
     var bubbleX = 0; var bubbleY = 300
@@ -67,6 +72,7 @@ object Store {
             if (palette.isEmpty()) palette.add(0xFF000000.toInt())
             rowClues = dec(o.optJSONArray("rc")); colClues = dec(o.optJSONArray("cc"))
             grid = j2r(o.optJSONArray("g"), grid); rowFrame = j2r(o.optJSONArray("rf"), rowFrame); colFrame = j2r(o.optJSONArray("cf"), colFrame)
+            gridScreen = j2r(o.optJSONArray("gs"), gridScreen); tapMs = o.optInt("tms", 150)
             bubbleX = o.optInt("bx", 0); bubbleY = o.optInt("by", 300)
             solH = o.optInt("sh"); solW = o.optInt("sw")
             o.optJSONArray("sol")?.let { a -> solution = IntArray(a.length()) { a.getInt(it) } }
@@ -80,6 +86,7 @@ object Store {
         o.put("rows", rows); o.put("cols", cols); o.put("color", colorMode); o.put("auto", autoSize); o.put("locked", locked); o.put("cp", colorPref); o.put("fm", framesManual)
         o.put("pal", JSONArray(palette)); o.put("rc", enc(rowClues)); o.put("cc", enc(colClues))
         o.put("g", r2j(grid)); o.put("rf", r2j(rowFrame)); o.put("cf", r2j(colFrame))
+        o.put("gs", r2j(gridScreen)); o.put("tms", tapMs)
         o.put("bx", bubbleX); o.put("by", bubbleY); o.put("sh", solH); o.put("sw", solW)
         solution?.let { o.put("sol", JSONArray(it.toList())) }
         ctx.getSharedPreferences("n", Context.MODE_PRIVATE).edit().putString("s", o.toString()).apply()

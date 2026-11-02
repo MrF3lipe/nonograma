@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="autotap_desc">Autoresolver de Nonograma: toca las casillas de la solución.</string>
+    <string name="autotap_label">Nonograma autoresolver</string>
+</resources>

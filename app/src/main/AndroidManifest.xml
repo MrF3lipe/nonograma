@@ -30,6 +30,14 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Burbuja flotante superpuesta para mostrar la solución del nonograma" />
         </service>
+        <service android:name=".AutoTapService" android:exported="true"
+            android:label="@string/autotap_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/autotap" />
+        </service>
         <receiver android:name=".UpdateReceiver" android:exported="false" />
         <provider android:name=".UpdateFileProvider" android:authorities="com.felipe.nonograma.updates"
             android:exported="false" android:grantUriPermissions="true" />

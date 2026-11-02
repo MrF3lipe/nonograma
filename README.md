@@ -41,3 +41,9 @@ Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest
 - Corrige confusiones 6/8 y 3/8 y filas que quedaban vacías.
 - Reparación automática: si las pistas no dan un puzzle resoluble, prueba las lecturas alternativas más dudosas.
 - Detección de rejilla más robusta en capturas reescaladas o con JPEG fuerte.
+
+## 1.0.5
+- Reintento automático de la lectura: si las pistas no son válidas (sumas distintas, una línea no cabe, línea vacía con dígitos, sin solución o solución contradictoria), vuelve a leer con otra escala, otro umbral de tinta y otro recorte de celda, y prueba combinaciones de dígitos dudosos (6/8, 3/8, 1/7, 0/8…) de la más a la menos probable hasta que el solucionador valide. Con tope de intentos y de tiempo.
+- Si aun así no lo consigue, no muestra pistas inválidas como buenas: marca las líneas dudosas en el editor y lo anota en errores.log.
+- Dígitos pegados (`16`) separados, números que se salen de la celda (`20` en la última columna) y columnas con `0` (vacías) reconocidos.
+- Autoresolver (▶): con permiso de accesibilidad, toca una a una las casillas rellenas de la solución sobre la cuadrícula detectada; intervalo configurable (ms) en el editor y se detiene en cualquier momento tocando la burbuja (■). Si las pistas no se resuelven, no toca nada.

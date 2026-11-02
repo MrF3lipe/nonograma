@@ -143,7 +143,9 @@ object ClueLogic {
 /** Lectura de pistas desde una captura de pantalla con ML Kit (offline). */
 object ClueReader {
     class Read(val rows: Int, val cols: Int, val rowClues: List<MutableList<Block>>, val colClues: List<MutableList<Block>>,
-               val palette: List<Int>, val colorDetected: Boolean, val tokens: Int)
+               val palette: List<Int>, val colorDetected: Boolean, val tokens: Int,
+               /** false si, tras los reintentos, las pistas siguen sin ser resolubles. */
+               val valid: Boolean = true, val doubtRows: Set<Int> = emptySet(), val doubtCols: Set<Int> = emptySet())
 
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
@@ -323,66 +325,26 @@ object ClueReader {
     /** Estadística de la última lectura (para el aviso y el registro). */
     @Volatile var lastStats = ""
 
-    fun readSegmented(screen: Bitmap, grid: Rect, rf: Rect, cf: Rect, rows: Int, cols: Int): Read? {
+    /**
+     * Lectura segmentada con reintentos (ver [CluePipeline]): si las pistas no son resolubles, reintenta
+     * con otra escala, umbral y recorte, y combinaciones de dígitos dudosos, con tope de intentos y tiempo.
+     */
+    fun readSegmented(screen: Bitmap, grid: Rect, rf: Rect, cf: Rect, rows: Int, cols: Int,
+                      limits: CluePipeline.Limits = CluePipeline.Limits()): Read? {
         val w = screen.width; val h = screen.height
         val px = IntArray(w * h); screen.getPixels(px, 0, w, 0, 0, w, h)
-        val ch = grid.height().toFloat() / rows; val cw = grid.width().toFloat() / cols
-        val rowGl = (0 until rows).map { r ->
-            val y0 = (grid.top + r * ch).toInt(); val y1 = (grid.top + (r + 1) * ch).toInt()
-            Segment.rowGlyphs(px, w, maxOf(0, rf.left), y0, minOf(rf.right, grid.left - 3), y1)
+        var mlErr = ""
+        // ML Kit solo como voto secundario y solo a escala 1 (los glifos se recomponen desde la captura)
+        val votes: (CluePipeline.Lines, CluePipeline.Variant) -> Map<Segment.Glyph, Int> = { l, v ->
+            val m = HashMap<Segment.Glyph, Int>()
+            if (v.scale == 1f) try { ocrLines(px, w, l.rowGroups + l.colGroups, MAIN, m) } catch (e: Throwable) { mlErr = " mlkit: ${e.javaClass.simpleName}" }
+            m
         }
-        val dom = Segment.dominant(rowGl.flatten())
-        val rowGroups = rowGl.map { Segment.stackRow(Segment.groupRow(it, dom), grid.left, cw) }
-        val colGroups = (0 until cols).map { c ->
-            val x0 = (grid.left + c * cw).toInt(); val x1 = (grid.left + (c + 1) * cw).toInt()
-            Segment.stackCol(Segment.colGroupsRaw(px, w, x0, maxOf(0, cf.top), x1, minOf(cf.bottom, grid.top - 3)), grid.top, ch)
-        }
-        val lines = rowGroups + colGroups
-        val glyphs = lines.flatten().flatMap { it.glyphs }
-        if (glyphs.isEmpty()) return null
-        // 1) ML Kit solo como voto secundario (si falla, no pasa nada)
-        val mlk = HashMap<Segment.Glyph, Int>()
-        try { ocrLines(px, w, lines, MAIN, mlk) } catch (e: Throwable) { lastStats = "mlkit: ${e.javaClass.simpleName}" }
-        // 2) reconocedor propio (plantillas + consistencia dentro de la captura)
-        val feats = glyphs.map { Segment.digitFeat(it) }
-        val pred = DigitClassifier.classifyAll(feats, glyphs.map { mlk[it] ?: -1 })
-        val digit = HashMap<Segment.Glyph, Int>()
-        glyphs.forEachIndexed { i, g -> digit[g] = pred[i] }
-        val disagree = glyphs.count { (mlk[it] ?: -1) >= 0 && mlk[it] != digit[it] }
-        // 3) reparación: si las pistas no dan un puzzle resoluble, probar las alternativas más dudosas
-        val margins = glyphs.indices.mapNotNull { i ->
-            val f = feats[i] ?: return@mapNotNull null
-            val sc = DigitClassifier.scores(f); val r = (0..9).sortedBy { sc[it] }
-            val alt = if (r[0] == pred[i]) r[1] else r[0]
-            Triple(i, alt, sc[alt] - sc[pred[i]])
-        }.sortedBy { it.third }.take(12)
-        lastStats = "glifos=${glyphs.size} mlkit_distinto=$disagree"
-        var result = build(rowGroups, colGroups, digit, rows, cols)
-        if (!solvable(result)) {
-            var fixed = false
-            for ((i, alt, _) in margins) {
-                val g = glyphs[i]; val old = digit[g]!!
-                digit[g] = alt
-                val r = build(rowGroups, colGroups, digit, rows, cols)
-                if (solvable(r)) { result = r; fixed = true; lastStats += " reparado=${'$'}old→${'$'}alt"; break }
-                digit[g] = old
-            }
-            if (!fixed) outer@ for (x in margins.indices) for (y in x + 1 until margins.size) {
-                val (i, ai, _) = margins[x]; val (j, aj, _) = margins[y]
-                val oi = digit[glyphs[i]]!!; val oj = digit[glyphs[j]]!!
-                digit[glyphs[i]] = ai; digit[glyphs[j]] = aj
-                val r = build(rowGroups, colGroups, digit, rows, cols)
-                if (solvable(r)) { result = r; fixed = true; lastStats += " reparado2"; break@outer }
-                digit[glyphs[i]] = oi; digit[glyphs[j]] = oj
-            }
-        }
-        return result
-    }
-
-    private fun solvable(r: Read): Boolean {
-        val rc = r.rowClues; val cc = r.colClues
-        if (rc.flatten().sumOf { it.len } != cc.flatten().sumOf { it.len }) return false
-        return Solver.solve(rc, cc, 1500).status == Solver.Status.SOLVED
+        val o = CluePipeline.run(px, w, h, grid.left, grid.top, grid.right, grid.bottom, maxOf(0, rf.left), maxOf(0, cf.top), rows, cols,
+            limits, votes, build = { l, d -> build(l.rowGroups, l.colGroups, d, rows, cols).let { it.rowClues to it.colClues } }) ?: return null
+        lastStats = "intentos=${o.attempts} combos=${o.combos} variante=${o.variant} ${if (o.ok) "ok" else "FALLA ${o.check.problems}"}$mlErr | ${o.log}"
+        val r = build(o.lines.rowGroups, o.lines.colGroups, o.digit, rows, cols)
+        return Read(r.rows, r.cols, r.rowClues, r.colClues, r.palette, r.colorDetected, r.tokens, o.ok, o.doubtRows, o.doubtCols)
     }
 
     private fun build(rowGroups: List<List<Segment.Group>>, colGroups: List<List<Segment.Group>>, digit: Map<Segment.Glyph, Int>, rows: Int, cols: Int): Read {

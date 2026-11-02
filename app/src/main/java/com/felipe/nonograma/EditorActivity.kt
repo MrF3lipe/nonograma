@@ -35,16 +35,17 @@ class EditorActivity : Activity() {
             isFocusable = true; isFocusableInTouchMode = true
         }
         val top = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
-        fun stepper(label: String, get: () -> Int, set: (Int) -> Unit): TextView {
+        fun stepper(label: String, get: () -> Int, step: Int = 1, set: (Int) -> Unit): TextView {
             top.addView(TextView(this).apply { text = label; setPadding(0, 0, dp(4), 0) })
             val v = TextView(this).apply { text = get().toString(); textSize = 16f; setPadding(dp(4), 0, dp(4), 0) }
-            top.addView(Button(this).apply { text = "−"; minWidth = 0; minimumWidth = dp(40); setOnClickListener { set(get() - 1); v.text = get().toString() } })
+            top.addView(Button(this).apply { text = "−"; minWidth = 0; minimumWidth = dp(40); setOnClickListener { set(get() - step); v.text = get().toString() } })
             top.addView(v)
-            top.addView(Button(this).apply { text = "+"; minWidth = 0; minimumWidth = dp(40); setOnClickListener { set(get() + 1); v.text = get().toString() } })
+            top.addView(Button(this).apply { text = "+"; minWidth = 0; minimumWidth = dp(40); setOnClickListener { set(get() + step); v.text = get().toString() } })
             return v
         }
         sizeR = stepper("Filas", { Store.rows }) { Store.resize(it, Store.cols); rebuild() }
         sizeC = stepper("Col.", { Store.cols }) { Store.resize(Store.rows, it); rebuild() }
+        stepper("ms", { Store.tapMs }, 25) { Store.tapMs = it.coerceIn(20, 2000) }
         root.addView(top)
         val opts = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         opts.addView(CheckBox(this).apply { text = "Auto"; isChecked = Store.autoSize; setOnCheckedChangeListener { _, c -> Store.autoSize = c } })
@@ -87,16 +88,16 @@ class EditorActivity : Activity() {
         sizeR.text = Store.rows.toString(); sizeC.text = Store.cols.toString()
         rebuildPalette()
         list.removeAllViews(); lineViews.clear()
-        fun section(name: String, clues: MutableList<MutableList<Block>>, len: Int) {
+        fun section(name: String, clues: MutableList<MutableList<Block>>, len: Int, doubt: MutableSet<Int>) {
             list.addView(TextView(this).apply { text = name; textSize = 15f; setTypeface(typeface, android.graphics.Typeface.BOLD); setPadding(0, dp(8), 0, dp(2)) })
-            clues.forEachIndexed { i, clue -> list.addView(lineRow(i + 1, clue, len)) }
+            clues.forEachIndexed { i, clue -> list.addView(lineRow(i + 1, clue, len, doubt)) }
         }
-        section("Filas", Store.rowClues, Store.cols)
-        section("Columnas", Store.colClues, Store.rows)
+        section("Filas", Store.rowClues, Store.cols, Store.doubtRows)
+        section("Columnas", Store.colClues, Store.rows, Store.doubtCols)
         updateSum()
     }
 
-    private fun lineRow(n: Int, clue: MutableList<Block>, len: Int): View {
+    private fun lineRow(n: Int, clue: MutableList<Block>, len: Int, doubt: MutableSet<Int>): View {
         val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         row.addView(TextView(this).apply { text = n.toString(); minWidth = dp(26) })
         val et = EditText(this).apply {
@@ -120,7 +121,7 @@ class EditorActivity : Activity() {
                 })
             }
         }
-        fun mark() { et.setBackgroundColor(if (Solver.minLen(if (Store.effectiveColor()) clue else clue.map { Block(it.len, 1) }) > len) 0x40FF0000 else 0) }
+        fun mark() { et.setBackgroundColor(if ((n - 1) in doubt || Solver.minLen(if (Store.effectiveColor()) clue else clue.map { Block(it.len, 1) }) > len) 0x40FF0000 else 0) }
         et.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -129,6 +130,7 @@ class EditorActivity : Activity() {
                 val old = clue.toList()
                 clue.clear(); nums.forEachIndexed { k, v -> clue.add(Block(v, old.getOrNull(k)?.color ?: 1)) }
                 Store.solution = null
+                if (old.map { it.len } != nums) doubt.remove(n - 1)
                 drawChips(); mark(); updateSum()
             }
         })

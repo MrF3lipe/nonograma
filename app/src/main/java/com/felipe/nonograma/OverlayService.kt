@@ -44,6 +44,9 @@ class OverlayService : Service() {
     private var vd: VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var capW = 0; private var capH = 0
+    private var capDpi = 0
+    private var recorder: ScreenRecorder? = null
+    private lateinit var recBtn: TextView
 
     private lateinit var bubble: BubbleView
     private lateinit var bubbleLp: WindowManager.LayoutParams
@@ -125,13 +128,49 @@ class OverlayService : Service() {
             override fun onStop() { main.post { stopProjection() } }
         }, main)
         val m = realMetrics()
-        capW = m.widthPixels; capH = m.heightPixels
+        capW = m.widthPixels; capH = m.heightPixels; capDpi = m.densityDpi
         val r = ImageReader.newInstance(capW, capH, PixelFormat.RGBA_8888, 2)
         vd = p.createVirtualDisplay("nonograma", capW, capH, m.densityDpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, main)
         reader = r; projection = p
     }
 
+    // ---------- Grabación (mismo VirtualDisplay: se alterna su superficie) ----------
+    private fun toggleRec() {
+        val r = recorder
+        if (r != null) { stopRec(); return }
+        if (projection == null || vd == null) {
+            startActivity(Intent(this, ProjectionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); return
+        }
+        val nr = ScreenRecorder(this)
+        if (!nr.start(capW, capH)) { Toast.makeText(this, "⏺ ✕", Toast.LENGTH_SHORT).show(); return }
+        recorder = nr
+        toEncoder()
+        recBtn.text = "⏹"; recBtn.setTextColor(0xFFFF5252.toInt())
+    }
+
+    private fun stopRec() {
+        val r = recorder ?: return
+        recorder = null
+        toReader()
+        val ok = r.stop()
+        if (::recBtn.isInitialized) { recBtn.text = "⏺"; recBtn.setTextColor(0xFFFFFFFF.toInt()) }
+        Toast.makeText(this, if (ok) "🎬 ✓" else "🎬 ✕", Toast.LENGTH_SHORT).show()
+    }
+
+    /** VirtualDisplay → codificador (tamaño del vídeo). */
+    private fun toEncoder() {
+        val r = recorder ?: return; val v = vd ?: return
+        runCatching { v.resize(r.w, r.h, capDpi); v.surface = r.surface }
+    }
+
+    /** VirtualDisplay → ImageReader (tamaño real de pantalla) para leer pistas. */
+    private fun toReader() {
+        val v = vd ?: return
+        runCatching { v.resize(capW, capH, capDpi); v.surface = reader?.surface }
+    }
+
     private fun stopProjection() {
+        if (recorder != null) stopRec()
         vd?.release(); vd = null
         reader?.close(); reader = null
         val p = projection; projection = null
@@ -241,6 +280,10 @@ class OverlayService : Service() {
             return CaptureCheck.overlayVisible(px, w, h, handles)
         }
         var dirtyFrames = 0
+        // grabando: el VirtualDisplay apunta al codificador; durante la lectura vuelve un momento al ImageReader
+        val recPaused = recorder != null
+        if (recPaused) toReader()
+        fun resume() { if (recPaused && recorder != null) toEncoder() }
         runCatching { reader?.acquireLatestImage()?.close() }
         views.forEach { it.visibility = View.INVISIBLE; it.alpha = 0f }
         // solo fotogramas compuestos después de ocultar (2 vsync de margen); si la pantalla está quieta
@@ -250,7 +293,7 @@ class OverlayService : Service() {
         var early: Bitmap? = null // posterior a ocultar pero quizá aún a medio componer
         var any: Bitmap? = null   // por si el reloj de las marcas de tiempo no es el esperado
         fun attempt() {
-            val got = try { grab() } catch (e: Throwable) { views.forEachIndexed { i, v -> v.visibility = vis[i]; v.alpha = 1f }; fail("captura", e); return }
+            val got = try { grab() } catch (e: Throwable) { views.forEachIndexed { i, v -> v.visibility = vis[i]; v.alpha = 1f }; resume(); fail("captura", e); return }
             var bmp: Bitmap? = null
             if (got != null) {
                 if (dirty(got.first)) dirtyFrames++ // con la superposición encima: nunca sirve
@@ -264,6 +307,7 @@ class OverlayService : Service() {
                 (if (dirtyFrames > 0) " descartadas=$dirtyFrames" else "")
             if (bmp == null) bmp = early ?: any
             views.forEachIndexed { i, v -> v.visibility = vis[i]; v.alpha = 1f }
+            resume()
             if (bmp == null) { done(if (dirtyFrames > 0) "La captura salió con los marcos encima; vuelve a leer" else "Sin captura"); return }
             then(bmp, g0, rf0, cf0, ox, oy)
         }
@@ -426,6 +470,7 @@ class OverlayService : Service() {
         modeBtn = btn("Auto") { cycleMode() }
         btn("Leer") { read() }
         btn("Editar") { openEditor() }
+        recBtn = btn("⏺") { toggleRec() }
         playBtn = btn("▶") { togglePlay() }
         speedBtn = btn("${Store.speed}x") { Store.speed = Store.speed % 3 + 1; speedBtn.text = "${Store.speed}x"; Store.save(this) }
         lockBtn = btn("🔓") { setLocked(!Store.locked) }

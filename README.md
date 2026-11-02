@@ -68,3 +68,6 @@ Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest
 - Autoresolver más rápido: botón 1x / 2x / 3x en la barra (hasta ~3 veces más rápido).
 - Arreglado: el autoresolver omitía casi siempre el primer bloque (el primer toque se lo tragaba la propia superposición, que aún no había pasado a no táctil).
 - Tutorial actualizado.
+
+## 1.0.10
+- Grabación de pantalla integrada (⏺/⏹ en la barra): usa la misma captura de la app, así no choca con la grabadora del sistema. Vídeo H.264 MP4 en Galería › Movies/Nonograma (sin audio). Leer pistas sigue funcionando mientras se graba (el vídeo se detiene un instante durante la lectura).

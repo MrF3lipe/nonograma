@@ -31,7 +31,8 @@ class MainActivity : Activity() {
         6 to "El botón de modo cambia entre Auto, Color y B/N.",
         7 to "Si algo sale mal, «Editar» permite corregir tamaño, números y colores; luego «Resolver».",
         8 to "Toca la burbuja para bloquear: el cuadro deja pasar los toques y puedes jugar debajo. Tócala otra vez para desbloquear.",
-        9 to "▶ rellena la solución en el juego (requiere el permiso de accesibilidad). «1x / 2x / 3x» cambia la velocidad."
+        9 to "▶ rellena la solución en el juego (requiere el permiso de accesibilidad). «1x / 2x / 3x» cambia la velocidad.",
+        10 to "⏺ graba la pantalla (sin otra grabadora); ⏹ la detiene y guarda el vídeo en Galería › Movies/Nonograma."
     )
 
     override fun onCreate(b: Bundle?) {
@@ -134,6 +135,7 @@ class StepArt(ctx: Context, private val step: Int) : View(ctx) {
                     p.color = listOf(0xFFC62828, 0xFF2E7D32, 0xFF1565C0, 0xFF000000)[i].toInt(); c.drawRect(u * 7.6f, u * (2.7f + i * 1.8f), u * 8.6f, u * (3.5f + i * 1.8f), p) }
                 chip(u * 3.8f, u * 9.6f, "Resolver", blue) }
             8 -> { grid(u * 4, u * 4, u * 5, 5, true); bubble(u * 3.6f, u * 2.2f, "🔒"); finger(u * 6.5f, u * 6.5f) }
+            10 -> { chip(u * 3.8f, u * 4, "⏺", 0xFFC62828.toInt()); chip(u * 3.8f, u * 6.6f, "⏹") }
             9 -> { chip(u * 3.8f, u * 3, "▶", blue); chip(u * 3.8f, u * 5.2f, "1x"); chip(u * 3.8f, u * 7.4f, "3x", 0xFFC62828.toInt()) }
         }
     }

@@ -3,34 +3,34 @@
   "app": "com.felipe.nonograma",
   "variants": {
     "universal": {
-      "version": "1.0.9",
-      "versionCode": 10,
+      "version": "1.0.10",
+      "versionCode": 11,
       "apk": {
-        "url": "https://github.com/MrF3lipe/nonograma/releases/download/v1.0.9/nonograma-1.0.9.apk",
-        "sha256": "a45de13a7ee7907a6afd310a822331dc4b15a1cfed845691ba6750c754717c0a",
-        "size": 6922958
+        "url": "https://github.com/MrF3lipe/nonograma/releases/download/v1.0.10/nonograma-1.0.10.apk",
+        "sha256": "6e6c54994c1b1d62204f042715c51b69b5bf0aaeab3d2d1ebc431a31edea5469",
+        "size": 6925230
       },
       "patches": [
         {
+          "fromVersionCode": 10,
+          "fromSha256": "a45de13a7ee7907a6afd310a822331dc4b15a1cfed845691ba6750c754717c0a",
+          "url": "https://github.com/MrF3lipe/nonograma/releases/download/v1.0.10/nonograma-10-11.bsdiff",
+          "sha256": "32215de141d502624d537531ad0b0800ad5c5e53033041836037ae10e08a62d7",
+          "size": 890802
+        },
+        {
           "fromVersionCode": 9,
           "fromSha256": "95403dabb6f99328381c4b5c4347fd9e1200f4b247597174a049145ed043fd5b",
-          "url": "https://github.com/MrF3lipe/nonograma/releases/download/v1.0.9/nonograma-9-10.bsdiff",
-          "sha256": "99b09037441f6fd8ee972df344f5f1344936e91daef792c52ace378dea789c1c",
-          "size": 893472
+          "url": "https://github.com/MrF3lipe/nonograma/releases/download/v1.0.10/nonograma-9-11.bsdiff",
+          "sha256": "044172da038155b97ed69d0122b5806d033733393f720414e4a75826cb89438f",
+          "size": 894979
         },
         {
           "fromVersionCode": 8,
           "fromSha256": "f7f5ffb0b02ce698316a6d951a55bef54c412ad4b2949b349a951a3ed9f56c94",
-          "url": "https://github.com/MrF3lipe/nonograma/releases/download/v1.0.9/nonograma-8-10.bsdiff",
-          "sha256": "e20be31468a19765ea9617b0e82bc00cc76e33fa194a38151a100cc53960679a",
-          "size": 891858
-        },
-        {
-          "fromVersionCode": 7,
-          "fromSha256": "c1c99f8b41248cc20c475cc84d130179ee93dac070dc8b4331f50688f8af5662",
-          "url": "https://github.com/MrF3lipe/nonograma/releases/download/v1.0.9/nonograma-7-10.bsdiff",
-          "sha256": "616d7230ce232b75a7d24f933aa257c83d425e8193f34113c8bad9b86a842283",
-          "size": 890622
+          "url": "https://github.com/MrF3lipe/nonograma/releases/download/v1.0.10/nonograma-8-11.bsdiff",
+          "sha256": "ed8c550d5115487019fd1119aeb1736bf759e67c6688e313401981e8450aa170",
+          "size": 895841
         }
       ]
     }

@@ -224,13 +224,14 @@ class OverlayService : Service() {
                     if (Store.framesManual) { rf = Rect(rf).apply { offset(dx, dy) }; cf = Rect(cf).apply { offset(dx, dy) } }
                     else {
                         rf = Rect(0, ng.top, ng.left - 1, ng.bottom)
-                        cf = Rect(ng.left, maxOf(0, ng.top - ng.height()), ng.right, ng.top - 1)
+                        cf = Rect(ng.left, 0, ng.right, ng.top - 1)
                     }
                     g = ng
                 }
             }
             stage = "ocr"
-            val res = ClueReader.read(bmp, g, rf, cf, rows, cols, infer = !sized)
+            val seg = if (sized) ClueReader.readSegmented(bmp, g, rf, cf, rows, cols) else null
+            val res = if (seg != null && seg.tokens > 0) seg else ClueReader.read(bmp, g, rf, cf, rows, cols, infer = !sized)
             main.post { applyRead(res, g, rf, cf, ox, oy) }
         } catch (e: Throwable) { fail(stage, e) }
     }

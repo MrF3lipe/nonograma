@@ -1,6 +1,8 @@
 package com.felipe.nonograma
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Rect
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
@@ -255,5 +257,111 @@ object ClueReader {
         val rowClues = ra.map { l -> l.map { Block(it.value, if (color) map[it]!! else 1) }.toMutableList() }
         val colClues = ca.map { l -> l.map { Block(it.value, if (color) map[it]!! else 1) }.toMutableList() }
         return Read(rows, cols, rowClues, colClues, if (color) pal else listOf(0xFF000000.toInt()), color, rt.size + ct.size)
+    }
+
+    // ---------- Lectura segmentada (1.0.2): dígitos aislados por proyección, normalizados y reconocidos en lote ----------
+    private const val GH = 48      // alto de glifo en la imagen compuesta
+    private const val LH = 96      // alto de línea
+    private const val GAP_IN = 10  // hueco entre dígitos de un número
+    private const val GAP_NUM = 56 // hueco entre números
+
+    private class Slot(val line: Int, val x0: Int, val x1: Int) { var digit: Int = -1 }
+
+    fun readSegmented(screen: Bitmap, grid: Rect, rf: Rect, cf: Rect, rows: Int, cols: Int): Read? {
+        val w = screen.width; val h = screen.height
+        val px = IntArray(w * h); screen.getPixels(px, 0, w, 0, 0, w, h)
+        val ch = grid.height().toFloat() / rows; val cw = grid.width().toFloat() / cols
+        val rowGroups = (0 until rows).map { r ->
+            val y0 = (grid.top + r * ch).toInt(); val y1 = (grid.top + (r + 1) * ch).toInt()
+            val gl = Segment.rowGlyphs(px, w, maxOf(0, rf.left), y0, minOf(rf.right, grid.left - 3), y1)
+            Segment.stackRow(Segment.groupRow(gl), grid.left, cw)
+        }
+        val colGroups = (0 until cols).map { c ->
+            val x0 = (grid.left + c * cw).toInt(); val x1 = (grid.left + (c + 1) * cw).toInt()
+            val lines = Segment.colGroupsRaw(px, w, x0, maxOf(0, cf.top), x1, minOf(cf.bottom, grid.top - 3))
+            Segment.stackCol(lines, grid.top, ch)
+        }
+        val lines = rowGroups + colGroups
+        if (lines.sumOf { it.size } == 0) return null
+        // imagen(es) compuesta(s): una línea de texto por fila/columna, negro sobre blanco
+        val slots = HashMap<Segment.Glyph, Slot>()
+        val perImage = 30
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+        for (start in lines.indices step perImage) {
+            val chunk = lines.subList(start, minOf(lines.size, start + perImage))
+            val widths = chunk.map { l -> 40 + l.sumOf { g -> g.glyphs.sumOf { glyphW(it) + GAP_IN } + GAP_NUM } }
+            val cw2 = maxOf(200, widths.maxOrNull() ?: 200)
+            val comp = Bitmap.createBitmap(cw2, LH * chunk.size + 40, Bitmap.Config.ARGB_8888)
+            val cv = Canvas(comp); cv.drawColor(0xFFFFFFFF.toInt())
+            chunk.forEachIndexed { li, l ->
+                var x = 30
+                for (g in l) {
+                    for (gl in g.glyphs) {
+                        val gw = glyphW(gl)
+                        glyphBitmap(px, w, gl)?.let { b ->
+                            cv.drawBitmap(b, null, Rect(x, 20 + li * LH + (LH - GH) / 2, x + gw, 20 + li * LH + (LH - GH) / 2 + GH), paint)
+                        }
+                        slots[gl] = Slot(start + li, x, x + gw)
+                        x += gw + GAP_IN
+                    }
+                    x += GAP_NUM
+                }
+            }
+            val text = Tasks.await(recognizer.process(InputImage.fromBitmap(comp, 0)))
+            val bySlotLine = slots.values.filter { it.line >= start && it.line < start + chunk.size }.groupBy { it.line }
+            fun put(cx: Float, cy: Float, d: Int) {
+                val li = start + ((cy - 20) / LH).toInt()
+                val cand = bySlotLine[li] ?: return
+                val best = cand.minByOrNull { kotlin.math.abs((it.x0 + it.x1) / 2f - cx) } ?: return
+                if (cx < best.x0 - GAP_NUM / 2 || cx > best.x1 + GAP_NUM / 2) return
+                if (best.digit < 0) best.digit = d
+            }
+            for (b in text.textBlocks) for (ln in b.lines) for (el in ln.elements) {
+                val syms = el.symbols
+                if (syms.isNotEmpty()) {
+                    for (sy in syms) {
+                        val bb = sy.boundingBox ?: continue
+                        val d = sy.text.firstOrNull()?.let { ClueLogic.normChar(it) } ?: continue
+                        put(bb.exactCenterX(), bb.exactCenterY(), d - '0')
+                    }
+                } else {
+                    val bb = el.boundingBox ?: continue
+                    val ds = el.text.mapNotNull { ClueLogic.normChar(it) }
+                    ds.forEachIndexed { k, d -> put(bb.left + (k + 0.5f) * bb.width() / ds.size, bb.exactCenterY(), d - '0') }
+                }
+            }
+        }
+        fun values(l: List<Segment.Group>, len: Int): Pair<List<Int>, List<Segment.Group>> {
+            val digits = l.map { g -> g.glyphs.mapNotNull { slots[it]?.digit?.takeIf { d -> d >= 0 } } }
+            val v = Segment.finalize(digits, len)
+            // color por número: los grupos destacados toman el color predominante de la línea
+            val keep = l.filterIndexed { i, _ -> digits[i].isNotEmpty() }
+            return v to keep
+        }
+        val rv = rowGroups.map { values(it, cols) }
+        val cvv = colGroups.map { values(it, rows) }
+        // colores: un color por número (solo si el número de grupos coincide con el de valores)
+        val allGroups = ArrayList<Segment.Group>()
+        val dom = (rv + cvv).flatMap { it.second }.filter { !it.highlight }.map { it.rgb }
+        for ((_, gs) in rv + cvv) for (g in gs) if (g.highlight) g.rgb = dom.firstOrNull() ?: 0xFF000000.toInt()
+        for ((_, gs) in rv + cvv) allGroups.addAll(gs)
+        val (pal, idx) = ClueLogic.cluster(allGroups.map { it.rgb })
+        val ix = java.util.IdentityHashMap<Segment.Group, Int>(); allGroups.forEachIndexed { i, g -> ix[g] = idx[i] }
+        val color = pal.size > 1
+        fun blocks(p: Pair<List<Int>, List<Segment.Group>>): MutableList<Block> {
+            val (v, gs) = p
+            return v.mapIndexed { i, n -> Block(n, if (color && gs.size == v.size) ix[gs[i]] ?: 1 else 1) }.toMutableList()
+        }
+        val tokens = (rv + cvv).sumOf { it.first.size }
+        return Read(rows, cols, rv.map { blocks(it) }, cvv.map { blocks(it) }, if (color) pal else listOf(0xFF000000.toInt()), color, tokens)
+    }
+
+    private fun glyphW(g: Segment.Glyph) = maxOf(8, (g.w.toFloat() / maxOf(1, g.h) * GH).toInt())
+
+    /** Glifo normalizado: tinta → negro, fondo → blanco (vale para texto claro sobre oscuro). */
+    private fun glyphBitmap(px: IntArray, w: Int, g: Segment.Glyph): Bitmap? {
+        val ink = Segment.ink(px, w, g.x0 - 1, g.y0 - 1, g.x1 + 1, g.y1 + 1) ?: return null
+        val out = IntArray(ink.w * ink.h) { val v = 255 - (ink.a[it] * 255).toInt(); (0xFF shl 24) or (v shl 16) or (v shl 8) or v }
+        return Bitmap.createBitmap(out, ink.w, ink.h, Bitmap.Config.ARGB_8888)
     }
 }

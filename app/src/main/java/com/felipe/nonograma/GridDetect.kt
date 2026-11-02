@@ -107,6 +107,9 @@ object GridDetect {
     private fun similar(x: Line, y: Line): Boolean {
         val len = maxOf(x.b - x.a, y.b - y.a)
         val tol = maxOf(10, len / 12)
-        return abs(x.a - y.a) <= tol && abs(x.b - y.b) <= tol
+        if (abs(x.a - y.a) <= tol && abs(x.b - y.b) <= tol) return true
+        // una contiene a la otra (p. ej. el borde superior se extiende sobre la zona de pistas)
+        val minLen = minOf(x.b - x.a, y.b - y.a)
+        return minLen > len / 2 && ((x.a <= y.a + tol && x.b >= y.b - tol) || (y.a <= x.a + tol && y.b >= x.b - tol))
     }
 }

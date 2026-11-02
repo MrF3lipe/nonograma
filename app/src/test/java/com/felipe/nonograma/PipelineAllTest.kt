@@ -26,6 +26,31 @@ class PipelineAllTest {
         val OCCLUDED = mapOf("tg-1549.jpg" to (setOf(18, 19) to setOf(18, 19)))
     }
 
+    /**
+     * Simula lo que pasaba en el teléfono: la captura de MediaProjection salía con la superposición
+     * (marcos y asas) aún a medio desaparecer. Mezcla tg-1536 (limpia) con tg-1549 (mismo puzzle con la
+     * superposición) a 1080x2400; con transparencia parcial debe seguir leyendo pistas válidas.
+     */
+    @Test fun overlayRemnantAtPhoneResolution() {
+        val a = File("/home/box/telegram-relay/media/tg-1536.jpg"); val b = File("/home/box/telegram-relay/media/tg-1549.jpg")
+        if (!a.exists() || !b.exists()) return
+        val ia = DigitEvalTest.scale(ImageIO.read(a), 1080.0 / 576); val ib = DigitEvalTest.scale(ImageIO.read(b), 1080.0 / 576)
+        val w = ia.width; val h = ia.height
+        val pa = ia.getRGB(0, 0, w, h, null, 0, w); val pb = ib.getRGB(0, 0, w, h, null, 0, w)
+        for (t in listOf(0f, 0.3f, 0.5f)) {
+            val px = IntArray(w * h) { i ->
+                var o = 0xFF shl 24
+                for (sh in intArrayOf(16, 8, 0)) o = o or ((((pa[i] shr sh) and 255) * (1 - t) + ((pb[i] shr sh) and 255) * t).toInt() shl sh)
+                o
+            }
+            val g = GridDetect.detect(px, w, h, 15)!!
+            assertEquals(20, g.rows); assertEquals(20, g.cols)
+            val o = CluePipeline.run(px, w, h, g.left, g.top, g.right, g.bottom, 0, 0, 20, 20)!!
+            println("mezcla $t: ok=${o.ok} intentos=${o.attempts}")
+            assertTrue("mezcla $t", o.ok)
+        }
+    }
+
     @Test fun allImages() {
         val files = dirs.flatMap { d -> File(d).listFiles { f -> f.name.endsWith(".jpg") || f.name.endsWith(".png") }?.toList() ?: emptyList() }
             .sortedBy { it.name }

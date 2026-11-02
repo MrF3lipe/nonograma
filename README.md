@@ -47,3 +47,9 @@ Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest
 - Si aun así no lo consigue, no muestra pistas inválidas como buenas: marca las líneas dudosas en el editor y lo anota en errores.log.
 - Dígitos pegados (`16`) separados, números que se salen de la celda (`20` en la última columna) y columnas con `0` (vacías) reconocidos.
 - Autoresolver (▶): con permiso de accesibilidad, toca una a una las casillas rellenas de la solución sobre la cuadrícula detectada; intervalo configurable (ms) en el editor y se detiene en cualquier momento tocando la burbuja (■). Si las pistas no se resuelven, no toca nada.
+
+## 1.0.6
+- Captura limpia: solo se leen fotogramas compuestos después de ocultar la superposición (en el teléfono a veces salían los marcos y las asas encima de las pistas, y eso daba pistas inválidas).
+- Si las pistas siguen sin ser válidas, repite la captura sola (hasta 3) y deduce líneas ilegibles cuando la solución es única.
+- errores.log guarda las pistas tal como se leyeron y el tipo de captura.
+- Actualización: reintenta la descarga si github.com no responde y, si el parche falla, baja la APK completa.

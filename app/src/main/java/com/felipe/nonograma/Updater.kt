@@ -54,11 +54,20 @@ object Updater {
         return md.digest().joinToString("") { "%02x".format(it) }
     }
 
+    /** Descarga con reintentos (red lenta o github.com que no responde a tiempo). */
     private fun get(url: String, to: File? = null): ByteArray? {
+        var last: java.io.IOException? = null
+        for (i in 0 until 3) {
+            try { return getOnce(url, to) } catch (e: java.io.IOException) { last = e; to?.delete(); Thread.sleep(1500L * (i + 1)) }
+        }
+        throw last!!
+    }
+
+    private fun getOnce(url: String, to: File? = null): ByteArray? {
         var u = url
         repeat(5) {
             val c = URL(u).openConnection() as HttpURLConnection
-            c.connectTimeout = 8000; c.readTimeout = 20000; c.instanceFollowRedirects = true
+            c.connectTimeout = 15000; c.readTimeout = 30000; c.instanceFollowRedirects = true
             c.setRequestProperty("Cache-Control", "no-cache")
             val code = c.responseCode
             if (code in 300..399) { u = c.getHeaderField("Location") ?: return null; c.disconnect(); return@repeat }

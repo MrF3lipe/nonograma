@@ -146,9 +146,12 @@ class OverlayService : Service() {
     }
 
     /** Copia la imagen fila a fila (el rowStride puede tener relleno; la última fila puede ser más corta). */
-    private fun grab(): Bitmap? {
+    /** Último fotograma disponible con su marca de tiempo (null si no llegó ninguno nuevo). */
+    private fun grab(): Pair<Bitmap, Long>? {
         val img = reader?.acquireLatestImage() ?: return null
         try {
+            // fotograma anterior a ocultar la superposición: no sirve (saldrían las asas y marcos encima de las pistas)
+            val ts = img.timestamp
             val pl = img.planes[0]
             val ps = pl.pixelStride; val rs = pl.rowStride
             val w = img.width; val h = img.height
@@ -166,7 +169,7 @@ class OverlayService : Service() {
                     k += ps
                 }
             }
-            return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
+            return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888) to ts
         } finally { img.close() }
     }
 
@@ -176,6 +179,7 @@ class OverlayService : Service() {
     }
 
     private var captureTry = 0
+    private var captureKind = ""
 
     fun read(keepTry: Boolean = false) {
         if (busy || playing) return
@@ -192,12 +196,24 @@ class OverlayService : Service() {
         val views = listOf(grid, rowF, colF, bar, bubble)
         val vis = views.map { it.visibility }
         runCatching { reader?.acquireLatestImage()?.close() }
-        views.forEach { it.visibility = View.INVISIBLE }
+        views.forEach { it.visibility = View.INVISIBLE; it.alpha = 0f }
+        // solo fotogramas compuestos después de ocultar (2 vsync de margen); si la pantalla está quieta
+        // y no llega ninguno, al final se acepta cualquiera posterior al momento de ocultar
+        val hiddenAt = System.nanoTime()
         var tries = 0
+        var early: Bitmap? = null // posterior a ocultar pero quizá aún a medio componer
+        var any: Bitmap? = null   // por si el reloj de las marcas de tiempo no es el esperado
         fun attempt() {
-            val bmp = try { grab() } catch (e: Throwable) { views.forEachIndexed { i, v -> v.visibility = vis[i] }; fail("captura", e); return }
-            if (bmp == null && tries++ < 10) { main.postDelayed({ attempt() }, 120); return }
-            views.forEachIndexed { i, v -> v.visibility = vis[i] }
+            val got = try { grab() } catch (e: Throwable) { views.forEachIndexed { i, v -> v.visibility = vis[i]; v.alpha = 1f }; fail("captura", e); return }
+            var bmp: Bitmap? = null
+            if (got != null) {
+                any = got.first
+                if (got.second >= hiddenAt + 34_000_000L) bmp = got.first else if (got.second >= hiddenAt) early = got.first
+            }
+            if (bmp == null && tries++ < 15) { main.postDelayed({ attempt() }, 100); return }
+            captureKind = if (bmp != null) "limpia" else if (early != null) "temprana" else "sin-marca"
+            if (bmp == null) bmp = early ?: any
+            views.forEachIndexed { i, v -> v.visibility = vis[i]; v.alpha = 1f }
             if (bmp == null) { done("Sin captura"); return }
             Thread { analyze(bmp, g0, rf0, cf0, ox, oy) }.start()
         }
@@ -287,7 +303,7 @@ class OverlayService : Service() {
         updateModeChip()
         grid.invalidate()
         Toast.makeText(this, "${r.rows}×${r.cols} · ${r.tokens}", Toast.LENGTH_SHORT).show()
-        ErrorLog.write(this, "lectura", RuntimeException("${r.rows}x${r.cols} tokens=${r.tokens} ${ClueReader.lastStats}"))
+        ErrorLog.write(this, "lectura", RuntimeException("${r.rows}x${r.cols} tokens=${r.tokens} captura=$captureKind ${ClueReader.lastStats}"))
         if (r.tokens == 0) { done(null); openEditor(); return }
         if (!r.valid && captureTry < 2) {
             // captura nueva (por si la anterior salió con algo encima o a medio dibujar)

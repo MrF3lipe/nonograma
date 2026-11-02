@@ -33,6 +33,7 @@ class OverlayService : Service() {
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
         const val EXTRA_READ = "read"
+        const val PLAY_START_DELAY_MS = 350L
         var instance: OverlayService? = null
         val hasProjection get() = instance?.projection != null
     }
@@ -54,6 +55,7 @@ class OverlayService : Service() {
     private var playing = false
     private lateinit var grid: GridView
     private lateinit var gridLp: WindowManager.LayoutParams
+    private lateinit var speedBtn: TextView
     private lateinit var rowF: FrameView
     private lateinit var rowLp: WindowManager.LayoutParams
     private lateinit var colF: FrameView
@@ -179,7 +181,11 @@ class OverlayService : Service() {
     }
 
     private var captureTry = 0
+    private var dragged = false
     private var captureKind = ""
+
+    private fun box(r: Rect) = Snap.Box(r.left, r.top, r.right, r.bottom)
+    private fun rect(b: Snap.Box) = Rect(b.l, b.t, b.r, b.b)
 
     fun read(keepTry: Boolean = false) {
         if (busy || playing) return
@@ -190,6 +196,35 @@ class OverlayService : Service() {
         }
         busy = true; bubble.glyph = "…"
         if (!shown) show()
+        capture { bmp, g0, rf0, cf0, ox, oy -> Thread { analyze(bmp, g0, rf0, cf0, ox, oy) }.start() }
+    }
+
+    /** Auto-acople al soltar un marco o el cuadro: captura limpia, rejilla cerca del cuadro y marcos a sus bordes. */
+    private fun snapNow() {
+        if (busy || playing || projection == null) return
+        busy = true
+        capture { bmp, g0, rf0, cf0, ox, oy ->
+            Thread {
+                val det = try { detectInside(bmp, g0) ?: run {
+                    val w = bmp.width; val h = bmp.height; val px = IntArray(w * h); bmp.getPixels(px, 0, w, 0, 0, w, h)
+                    GridDetect.detect(px, w, h, minCell = (6 * resources.displayMetrics.density).toInt().coerceAtLeast(6))
+                } } catch (e: Throwable) { null }
+                main.post {
+                    busy = false; updateGlyph()
+                    if (det == null) return@post
+                    val ng = Snap.Box(det.left, det.top, det.right, det.bottom)
+                    if (!Snap.near(ng, box(g0), box(rf0), box(cf0))) return@post
+                    val (a, c) = Snap.frames(ng, box(rf0), box(cf0))
+                    Store.resize(det.rows, det.cols)
+                    applyGeom(rect(ng), rect(a), rect(c), ox, oy)
+                    Store.save(this)
+                }
+            }.start()
+        }
+    }
+
+    /** Captura sin la superposición encima y llama a [then] en el hilo principal (o termina con aviso). */
+    private fun capture(then: (Bitmap, Rect, Rect, Rect, Int, Int) -> Unit) {
         val bl = screenRect(bubble); val ox = bl.left - bubbleLp.x; val oy = bl.top - bubbleLp.y
         fun abs(l: WindowManager.LayoutParams) = Rect(l.x + ox, l.y + oy, l.x + ox + l.width, l.y + oy + l.height)
         val g0 = abs(gridLp); val rf0 = abs(rowLp); val cf0 = abs(colLp)
@@ -230,7 +265,7 @@ class OverlayService : Service() {
             if (bmp == null) bmp = early ?: any
             views.forEachIndexed { i, v -> v.visibility = vis[i]; v.alpha = 1f }
             if (bmp == null) { done(if (dirtyFrames > 0) "La captura salió con los marcos encima; vuelve a leer" else "Sin captura"); return }
-            Thread { analyze(bmp, g0, rf0, cf0, ox, oy) }.start()
+            then(bmp, g0, rf0, cf0, ox, oy)
         }
         main.postDelayed({ attempt() }, 300)
     }
@@ -257,12 +292,9 @@ class OverlayService : Service() {
                 if (det != null) {
                     val ng = Rect(det.left, det.top, det.right, det.bottom)
                     rows = det.rows; cols = det.cols; sized = true
-                    val dx = ng.left - g.left; val dy = ng.top - g.top
-                    if (Store.framesManual) { rf = Rect(rf).apply { offset(dx, dy) }; cf = Rect(cf).apply { offset(dx, dy) } }
-                    else {
-                        rf = Rect(0, ng.top, ng.left - 1, ng.bottom)
-                        cf = Rect(ng.left, 0, ng.right, ng.top - 1)
-                    }
+                    // auto-acople: los marcos se pegan a los bordes exactos de la rejilla detectada
+                    val (a, c) = if (Store.framesManual) Snap.frames(box(ng), box(rf), box(cf)) else Snap.frames(box(ng), Snap.Box(0, 0, 0, 0), Snap.Box(0, 0, 0, 0))
+                    rf = rect(a); cf = rect(c)
                     g = ng
                 }
             }
@@ -300,13 +332,18 @@ class OverlayService : Service() {
         return true
     }
 
-    private fun applyRead(r: ClueReader.Read, g: Rect, rf: Rect, cf: Rect, ox: Int, oy: Int) {
-        // ajustar ventanas a lo detectado
+    /** Coloca cuadro y marcos (coordenadas de pantalla) en sus ventanas. */
+    private fun applyGeom(g: Rect, rf: Rect, cf: Rect, ox: Int, oy: Int) {
         fun set(l: WindowManager.LayoutParams, v: View, s: Rect, dst: Rect) {
             l.x = s.left - ox; l.y = s.top - oy; l.width = maxOf(minSide(), s.width()); l.height = maxOf(minSide(), s.height())
             dst.set(l.x, l.y, l.x + l.width, l.y + l.height); wm.updateViewLayout(v, l)
         }
         set(gridLp, grid, g, Store.grid); set(rowLp, rowF, rf, Store.rowFrame); set(colLp, colF, cf, Store.colFrame)
+        grid.invalidate()
+    }
+
+    private fun applyRead(r: ClueReader.Read, g: Rect, rf: Rect, cf: Rect, ox: Int, oy: Int) {
+        applyGeom(g, rf, cf, ox, oy)
         Store.resize(r.rows, r.cols)
         Store.rowClues = r.rowClues.toMutableList(); Store.colClues = r.colClues.toMutableList()
         Store.colorMode = r.colorDetected
@@ -390,6 +427,7 @@ class OverlayService : Service() {
         btn("Leer") { read() }
         btn("Editar") { openEditor() }
         playBtn = btn("▶") { togglePlay() }
+        speedBtn = btn("${Store.speed}x") { Store.speed = Store.speed % 3 + 1; speedBtn.text = "${Store.speed}x"; Store.save(this) }
         lockBtn = btn("🔓") { setLocked(!Store.locked) }
         btn("Ocultar") { hide() }
         btn("✕") { stopSelf() }
@@ -442,7 +480,13 @@ class OverlayService : Service() {
                 // la superposición no debe recibir los toques: rejilla no táctil y barra oculta
                 setLocked(true); grid.visibility = View.GONE
                 updateGlyph()
-                svc.play(taps, Store.tapMs.toLong(), onStep = {}, onEnd = { main.post { endPlay() } })
+                // el primer toque se perdía: se inyectaba en el mismo instante en que la rejilla pasaba a no táctil y
+                // el WindowManager aún tenía la ventana anterior (táctil) encima, que se tragaba el toque. Esperar a
+                // que se apliquen los cambios de ventana antes del primer gesto.
+                main.postDelayed({
+                    if (!playing) return@postDelayed
+                    svc.play(taps, Store.intervalMs(), Store.strokeMs(), onStep = {}, onEnd = { main.post { endPlay() } })
+                }, PLAY_START_DELAY_MS)
             }
         }.start()
     }
@@ -546,7 +590,8 @@ class OverlayService : Service() {
         Store.rowFrame.set(rowLp.x, rowLp.y, rowLp.x + rowLp.width, rowLp.y + rowLp.height)
         Store.colFrame.set(colLp.x, colLp.y, colLp.x + colLp.width, colLp.y + colLp.height)
         wm.updateViewLayout(grid, gridLp); wm.updateViewLayout(rowF, rowLp); wm.updateViewLayout(colF, colLp)
-        if (fin) Store.save(this)
+        if (dx != 0 || dy != 0) dragged = true
+        if (fin) { Store.save(this); if (dragged) snapNow(); dragged = false }
     }
 
     private fun moveFrame(v: View, l: WindowManager.LayoutParams, r: Rect, dx: Int, dy: Int, resize: Boolean, fin: Boolean) {
@@ -555,6 +600,7 @@ class OverlayService : Service() {
         r.set(l.x, l.y, l.x + l.width, l.y + l.height)
         Store.framesManual = true
         wm.updateViewLayout(v, l)
-        if (fin) Store.save(this)
+        if (dx != 0 || dy != 0) dragged = true
+        if (fin) { Store.save(this); if (dragged) snapNow(); dragged = false }
     }
 }

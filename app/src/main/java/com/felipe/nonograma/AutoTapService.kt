@@ -33,7 +33,7 @@ class AutoTapService : AccessibilityService() {
     fun stop() { running = false; main.removeCallbacksAndMessages(null) }
 
     /** Toca los puntos en orden con [intervalMs] entre toques. onStep(i) tras cada toque; onEnd(completo). */
-    fun play(taps: List<AutoPlan.Tap>, intervalMs: Long, onStep: (Int) -> Unit, onEnd: (Boolean) -> Unit) {
+    fun play(taps: List<AutoPlan.Tap>, intervalMs: Long, strokeMs: Long = 40, onStep: (Int) -> Unit, onEnd: (Boolean) -> Unit) {
         stop()
         if (taps.isEmpty()) { onEnd(false); return }
         running = true
@@ -42,7 +42,7 @@ class AutoTapService : AccessibilityService() {
             if (i >= taps.size) { running = false; onEnd(true); return }
             val t = taps[i]
             val path = Path().apply { moveTo(t.x, t.y); lineTo(t.x + 0.5f, t.y + 0.5f) }
-            val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 40)).build()
+            val g = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, strokeMs)).build()
             val ok = dispatchGesture(g, object : GestureResultCallback() {
                 override fun onCompleted(d: GestureDescription?) { onStep(i); main.postDelayed({ next(i + 1) }, intervalMs) }
                 override fun onCancelled(d: GestureDescription?) { running = false; onEnd(false) }

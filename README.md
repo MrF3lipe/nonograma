@@ -62,3 +62,9 @@ Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest
 - Nonogramas B/N con los números ≥10 resaltados en amarillo también en las columnas (como el juego de las capturas): ya no se toman como "color". Antes salía «Auto·Color» y la validación con colores daba pistas inválidas.
 - Celdas grandes (5x5, 10x10) con números pequeños: ahora se encuentran los dígitos.
 - Probado con nonogramas generados capturados en emulador a 1080x2400, 720x1600 y 1440x3200.
+
+## 1.0.9
+- Auto-acople: al soltar el cuadro o los marcos F/C cerca del nonograma, se detecta la rejilla en la captura y se pegan solos a sus bordes exactos (también al pulsar «Leer»).
+- Autoresolver más rápido: botón 1x / 2x / 3x en la barra (hasta ~3 veces más rápido).
+- Arreglado: el autoresolver omitía casi siempre el primer bloque (el primer toque se lo tragaba la propia superposición, que aún no había pasado a no táctil).
+- Tutorial actualizado.

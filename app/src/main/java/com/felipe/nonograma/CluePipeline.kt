@@ -22,6 +22,9 @@ object CluePipeline {
         Variant(0.75f, 0.30f, 0.65f, 0.14f, 0.16f),
         Variant(1.5f, 0.45f, 0.80f, 0.06f, 0.08f),
         Variant(1.25f, 0.35f, 0.60f, 0.18f, 0.20f),
+        // celdas grandes (5x5, 10x10) con números de tamaño fijo: el dígito ocupa poco de la celda
+        Variant(1f, 0.12f, 0.45f, 0.05f, 0.06f),
+        Variant(1f, 0.06f, 0.30f, 0.03f, 0.04f),
     )
     /** Pares que el reconocedor confunde a menudo: se prueban antes. */
     private val CONFUSABLE = setOf(6 to 8, 8 to 6, 3 to 8, 8 to 3, 1 to 7, 7 to 1, 0 to 8, 8 to 0, 5 to 6, 6 to 5, 9 to 8, 8 to 9)

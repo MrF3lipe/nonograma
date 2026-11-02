@@ -108,7 +108,7 @@ object Segment {
         val out = ArrayList<Glyph>()
         for (r in runs(col, 0.6f)) {
             val g = glyphOf(ink, r[0], r[1], w) ?: continue
-            if (g.h < (y1 - y0) * 0.25f) continue // ruido
+            if (g.h < (y1 - y0) * minOf(0.25f, loF * 0.8f)) continue // ruido (relativo al tamaño de dígito buscado)
             if (g.h > (y1 - y0) * 0.95f && g.w > (y1 - y0)) continue // línea/borde
             out.add(g)
         }
@@ -134,7 +134,7 @@ object Segment {
         val out = ArrayList<List<Glyph>>()
         for (r in runs(rowP, 0.6f)) {
             val hgt = r[1] - r[0]
-            if (hgt < cellW * 0.2f || hgt > cellW * 1.5f) continue
+            if (hgt < cellW * minOf(0.2f, loF * 0.6f) || hgt > cellW * 1.5f) continue
             // sub-imagen de esa línea → glifos por columnas (solo los que tocan la ventana interior)
             val sub = Ink(ink.w, hgt, ink.left, ink.top + r[0], FloatArray(ink.w * hgt) { ink.a[(r[0] + it / ink.w) * ink.w + it % ink.w] }, px)
             val colP = FloatArray(sub.w)

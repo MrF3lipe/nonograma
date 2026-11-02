@@ -95,6 +95,21 @@ object ClueLogic {
      * Agrupa colores en paleta. Los neutros (negro/gris/blanco) cuentan como un solo color.
      * Devuelve (paleta, índice 1-based por color de entrada).
      */
+    /**
+     * Grupos con un color que solo aparece en números de 2+ cifras (p. ej. "10", "12" en amarillo): es un
+     * resaltado del juego, no un color de pista. Las columnas apiladas no pasan por la regla de resaltado de
+     * filas, así que sin esto un nonograma B/N con números ≥10 en amarillo se tomaba como de color.
+     */
+    fun highlightOnlyMultiDigit(lines: List<Pair<List<Int>, List<Segment.Group>>>): List<Segment.Group> {
+        val pairs = lines.filter { it.first.size == it.second.size }.flatMap { (v, g) -> v.zip(g) }
+            .filter { (_, g) -> !g.highlight && isChromatic(g.rgb) }
+        if (pairs.isEmpty()) return emptyList()
+        val (_, idx) = cluster(pairs.map { it.second.rgb })
+        return pairs.indices.groupBy { idx[it] }.values
+            .filter { m -> m.all { pairs[it].first >= 10 } }
+            .flatMap { m -> m.map { pairs[it].second } }
+    }
+
     fun cluster(colors: List<Int>): Pair<List<Int>, List<Int>> {
         val pal = mutableListOf<Int>(); val sums = mutableListOf<IntArray>()
         val idx = colors.map { c ->
@@ -360,6 +375,7 @@ object ClueReader {
         val normal = allGroups.filter { !it.highlight }.map { it.rgb }
         val base = normal.firstOrNull { Segment.isNeutral(it) } ?: normal.firstOrNull() ?: 0xFF000000.toInt()
         for (g in allGroups) if (g.highlight) g.rgb = base
+        ClueLogic.highlightOnlyMultiDigit(rv + cvv).forEach { it.rgb = base }
         val (pal, idx) = ClueLogic.cluster(allGroups.map { it.rgb })
         val ix = java.util.IdentityHashMap<Segment.Group, Int>(); allGroups.forEachIndexed { i, g -> ix[g] = idx[i] }
         val color = pal.size > 1

@@ -57,3 +57,8 @@ Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest
 ## 1.0.7
 - Captura sucia descartada: si en el fotograma aún se ven las asas de los marcos (F/C) o del cuadro de solución, no se lee y se espera a otro. Con la superposición encima las pistas de filas salían mal (un `4` pegado al borde del marco se leía `2`, las dos últimas filas quedaban bajo el asa y la 18 se corría).
 - errores.log indica cuántos fotogramas sucios se descartaron.
+
+## 1.0.8
+- Nonogramas B/N con los números ≥10 resaltados en amarillo también en las columnas (como el juego de las capturas): ya no se toman como "color". Antes salía «Auto·Color» y la validación con colores daba pistas inválidas.
+- Celdas grandes (5x5, 10x10) con números pequeños: ahora se encuentran los dígitos.
+- Probado con nonogramas generados capturados en emulador a 1080x2400, 720x1600 y 1440x3200.

@@ -57,9 +57,7 @@ object Store {
     private fun r2j(r: Rect) = JSONArray(listOf(r.left, r.top, r.right, r.bottom))
     private fun j2r(a: JSONArray?, d: Rect) = if (a == null) d else Rect(a.getInt(0), a.getInt(1), a.getInt(2), a.getInt(3))
 
-    fun load(ctx: Context) {
-        if (loaded) return
-        loaded = true
+    private fun defaultsGeometry(ctx: Context) {
         val dm = ctx.resources.displayMetrics
         val side = (minOf(dm.widthPixels, dm.heightPixels) * 0.7).toInt()
         val l = dm.widthPixels - side - dm.widthPixels / 40
@@ -67,6 +65,22 @@ object Store {
         grid = Rect(l, t, l + side, t + side)
         rowFrame = Rect(0, t, l - 2, t + side)
         colFrame = Rect(l, maxOf(0, t - side / 2), l + side, t - 2)
+    }
+
+    /** Valores iniciales: cuadro y marcos por defecto, sin pistas, sin solución (⟲). Conserva velocidad y ms. */
+    fun reset(ctx: Context) {
+        defaultsGeometry(ctx)
+        framesManual = false; colorMode = false
+        rowClues = MutableList(rows) { mutableListOf() }; colClues = MutableList(cols) { mutableListOf() }
+        solution = null; solH = 0; solW = 0; doubtRows.clear(); doubtCols.clear()
+        palette.clear(); palette.add(0xFF000000.toInt()); gridScreen = Rect()
+        save(ctx)
+    }
+
+    fun load(ctx: Context) {
+        if (loaded) return
+        loaded = true
+        defaultsGeometry(ctx)
         val s = ctx.getSharedPreferences("n", Context.MODE_PRIVATE).getString("s", null) ?: return
         try {
             val o = JSONObject(s)

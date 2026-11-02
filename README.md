@@ -71,3 +71,8 @@ Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest
 
 ## 1.0.10
 - Grabación de pantalla integrada (⏺/⏹ en la barra): usa la misma captura de la app, así no choca con la grabadora del sistema. Vídeo H.264 MP4 en Galería › Movies/Nonograma (sin audio). Leer pistas sigue funcionando mientras se graba (el vídeo se detiene un instante durante la lectura).
+
+## 1.0.11
+- El auto-acople solo ocurre al pulsar «Leer» (ya no al soltar el cuadro o los marcos).
+- Barra en varias filas: en 1.0.10 era una sola fila y, con ⏺ y 1x/2x/3x, «Ocultar», la velocidad y ✕ se salían de la pantalla.
+- Nuevo ⟲: cuadro y marcos a su posición inicial y sin pistas ni solución.

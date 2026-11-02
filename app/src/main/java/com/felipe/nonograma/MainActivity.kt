@@ -26,13 +26,14 @@ class MainActivity : Activity() {
         1 to "Toca «Iniciar burbuja» y acepta la captura de pantalla.",
         2 to "Abre tu app de nonogramas.",
         3 to "Toca la burbuja: aparece el cuadro.",
-        4 to "Arrastra el cuadro cerca de la rejilla y suéltalo: se acopla solo a sus bordes. La esquina cambia el tamaño.",
-        5 to "«Pistas» muestra los marcos F (filas) y C (columnas). Al soltarlos se acoplan solos a la rejilla. Luego toca «Leer».",
+        4 to "Arrastra el cuadro sobre la rejilla; la esquina cambia el tamaño. Al tocar «Leer» se acopla solo a sus bordes.",
+        5 to "«Pistas» muestra los marcos F (filas) y C (columnas): colócalos cerca de los números y toca «Leer»; se acoplan solos.",
         6 to "El botón de modo cambia entre Auto, Color y B/N.",
         7 to "Si algo sale mal, «Editar» permite corregir tamaño, números y colores; luego «Resolver».",
         8 to "Toca la burbuja para bloquear: el cuadro deja pasar los toques y puedes jugar debajo. Tócala otra vez para desbloquear.",
         9 to "▶ rellena la solución en el juego (requiere el permiso de accesibilidad). «1x / 2x / 3x» cambia la velocidad.",
-        10 to "⏺ graba la pantalla (sin otra grabadora); ⏹ la detiene y guarda el vídeo en Galería › Movies/Nonograma."
+        10 to "⏺ graba la pantalla (sin otra grabadora); ⏹ la detiene y guarda el vídeo en Galería › Movies/Nonograma.",
+        11 to "⟲ vuelve el cuadro y los marcos a su sitio inicial y borra las pistas y la solución."
     )
 
     override fun onCreate(b: Bundle?) {
@@ -135,6 +136,7 @@ class StepArt(ctx: Context, private val step: Int) : View(ctx) {
                     p.color = listOf(0xFFC62828, 0xFF2E7D32, 0xFF1565C0, 0xFF000000)[i].toInt(); c.drawRect(u * 7.6f, u * (2.7f + i * 1.8f), u * 8.6f, u * (3.5f + i * 1.8f), p) }
                 chip(u * 3.8f, u * 9.6f, "Resolver", blue) }
             8 -> { grid(u * 4, u * 4, u * 5, 5, true); bubble(u * 3.6f, u * 2.2f, "🔒"); finger(u * 6.5f, u * 6.5f) }
+            11 -> { chip(u * 3.8f, u * 5.2f, "⟲", blue) }
             10 -> { chip(u * 3.8f, u * 4, "⏺", 0xFFC62828.toInt()); chip(u * 3.8f, u * 6.6f, "⏹") }
             9 -> { chip(u * 3.8f, u * 3, "▶", blue); chip(u * 3.8f, u * 5.2f, "1x"); chip(u * 3.8f, u * 7.4f, "3x", 0xFFC62828.toInt()) }
         }

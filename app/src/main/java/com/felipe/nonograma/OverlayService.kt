@@ -59,6 +59,7 @@ class OverlayService : Service() {
     private lateinit var grid: GridView
     private lateinit var gridLp: WindowManager.LayoutParams
     private lateinit var speedBtn: TextView
+    private val barButtons = ArrayList<TextView>()
     private lateinit var rowF: FrameView
     private lateinit var rowLp: WindowManager.LayoutParams
     private lateinit var colF: FrameView
@@ -220,7 +221,6 @@ class OverlayService : Service() {
     }
 
     private var captureTry = 0
-    private var dragged = false
     private var captureKind = ""
 
     private fun box(r: Rect) = Snap.Box(r.left, r.top, r.right, r.bottom)
@@ -236,30 +236,6 @@ class OverlayService : Service() {
         busy = true; bubble.glyph = "…"
         if (!shown) show()
         capture { bmp, g0, rf0, cf0, ox, oy -> Thread { analyze(bmp, g0, rf0, cf0, ox, oy) }.start() }
-    }
-
-    /** Auto-acople al soltar un marco o el cuadro: captura limpia, rejilla cerca del cuadro y marcos a sus bordes. */
-    private fun snapNow() {
-        if (busy || playing || projection == null) return
-        busy = true
-        capture { bmp, g0, rf0, cf0, ox, oy ->
-            Thread {
-                val det = try { detectInside(bmp, g0) ?: run {
-                    val w = bmp.width; val h = bmp.height; val px = IntArray(w * h); bmp.getPixels(px, 0, w, 0, 0, w, h)
-                    GridDetect.detect(px, w, h, minCell = (6 * resources.displayMetrics.density).toInt().coerceAtLeast(6))
-                } } catch (e: Throwable) { null }
-                main.post {
-                    busy = false; updateGlyph()
-                    if (det == null) return@post
-                    val ng = Snap.Box(det.left, det.top, det.right, det.bottom)
-                    if (!Snap.near(ng, box(g0), box(rf0), box(cf0))) return@post
-                    val (a, c) = Snap.frames(ng, box(rf0), box(cf0))
-                    Store.resize(det.rows, det.cols)
-                    applyGeom(rect(ng), rect(a), rect(c), ox, oy)
-                    Store.save(this)
-                }
-            }.start()
-        }
     }
 
     /** Captura sin la superposición encima y llama a [then] en el hilo principal (o termina con aviso). */
@@ -458,14 +434,14 @@ class OverlayService : Service() {
         }
 
         bar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply { setColor(0xE0202020.toInt()); cornerRadius = dp(10).toFloat() }
             setPadding(dp(4), dp(2), dp(4), dp(2))
         }
         fun btn(t: String, f: () -> Unit) = TextView(this).apply {
             text = t; setTextColor(0xFFFFFFFF.toInt()); textSize = 14f
             setPadding(dp(9), dp(9), dp(9), dp(9)); setOnClickListener { f() }
-        }.also { bar.addView(it) }
+        }.also { barButtons.add(it) }
         btn("Pistas") { setFrames(!framesShown) }
         modeBtn = btn("Auto") { cycleMode() }
         btn("Leer") { read() }
@@ -475,7 +451,9 @@ class OverlayService : Service() {
         speedBtn = btn("${Store.speed}x") { Store.speed = Store.speed % 3 + 1; speedBtn.text = "${Store.speed}x"; Store.save(this) }
         lockBtn = btn("🔓") { setLocked(!Store.locked) }
         btn("Ocultar") { hide() }
+        btn("⟲") { resetAll() }
         btn("✕") { stopSelf() }
+        flowBar()
         barLp = lp(0, 0, WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT)
 
         grid = GridView(this)
@@ -561,10 +539,41 @@ class OverlayService : Service() {
         modeBtn.setTextColor(if (c) 0xFFFF8A80.toInt() else 0xFFFFFFFF.toInt())
     }
 
+    /**
+     * Botones en filas que caben en el ancho de pantalla. Antes era una sola fila WRAP_CONTENT: al añadir ⏺ y 1x
+     * la barra pasó del ancho de la pantalla y los últimos botones («Ocultar», «✕») quedaban fuera, recortados.
+     */
+    private fun flowBar() {
+        val maxW = realMetrics().widthPixels - dp(8) - bar.paddingLeft - bar.paddingRight
+        val spec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        val widths = barButtons.map { it.measure(spec, spec); it.measuredWidth }
+        bar.removeAllViews()
+        for (row in BarFlow.rows(widths, maxW)) {
+            val ll = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (i in row) { (barButtons[i].parent as? android.view.ViewGroup)?.removeView(barButtons[i]); ll.addView(barButtons[i]) }
+            bar.addView(ll)
+        }
+    }
+
+    private fun barSize(): Pair<Int, Int> {
+        val spec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        bar.measure(spec, spec); return bar.measuredWidth to bar.measuredHeight
+    }
+
+    /** ⟲: cuadro y marcos a la posición/tamaño inicial y sin pistas ni solución. */
+    private fun resetAll() {
+        if (busy || playing) return
+        Store.reset(this)
+        fun put(l: WindowManager.LayoutParams, v: View, r: Rect) { l.x = r.left; l.y = r.top; l.width = r.width(); l.height = r.height(); if (v.parent != null) wm.updateViewLayout(v, l) }
+        put(gridLp, grid, Store.grid); put(rowLp, rowF, Store.rowFrame); put(colLp, colF, Store.colFrame)
+        grid.invalidate(); updateModeChip(); updateGlyph()
+    }
+
     private fun placeBar() {
         val m = realMetrics()
-        barLp.x = (bubbleLp.x).coerceIn(0, maxOf(0, m.widthPixels - dp(330)))
-        barLp.y = if (bubbleLp.y + bubbleLp.height + dp(56) < m.heightPixels) bubbleLp.y + bubbleLp.height + dp(4) else bubbleLp.y - dp(52)
+        val (bw, bh) = barSize()
+        barLp.x = (bubbleLp.x).coerceIn(0, maxOf(0, m.widthPixels - bw))
+        barLp.y = if (bubbleLp.y + bubbleLp.height + bh + dp(4) < m.heightPixels) bubbleLp.y + bubbleLp.height + dp(4) else maxOf(0, bubbleLp.y - bh - dp(4))
         if (bar.parent != null) wm.updateViewLayout(bar, barLp)
     }
 
@@ -635,8 +644,7 @@ class OverlayService : Service() {
         Store.rowFrame.set(rowLp.x, rowLp.y, rowLp.x + rowLp.width, rowLp.y + rowLp.height)
         Store.colFrame.set(colLp.x, colLp.y, colLp.x + colLp.width, colLp.y + colLp.height)
         wm.updateViewLayout(grid, gridLp); wm.updateViewLayout(rowF, rowLp); wm.updateViewLayout(colF, colLp)
-        if (dx != 0 || dy != 0) dragged = true
-        if (fin) { Store.save(this); if (dragged) snapNow(); dragged = false }
+        if (fin) Store.save(this)
     }
 
     private fun moveFrame(v: View, l: WindowManager.LayoutParams, r: Rect, dx: Int, dy: Int, resize: Boolean, fin: Boolean) {
@@ -645,7 +653,6 @@ class OverlayService : Service() {
         r.set(l.x, l.y, l.x + l.width, l.y + l.height)
         Store.framesManual = true
         wm.updateViewLayout(v, l)
-        if (dx != 0 || dy != 0) dragged = true
-        if (fin) { Store.save(this); if (dragged) snapNow(); dragged = false }
+        if (fin) Store.save(this)
     }
 }

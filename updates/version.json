@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "app": "com.felipe.nonograma",
+  "variants": {
+    "universal": {
+      "version": "1.0.1",
+      "versionCode": 2,
+      "apk": {
+        "url": "https://github.com/MrF3lipe/nonograma/releases/download/v1.0.1/nonograma-1.0.1.apk",
+        "sha256": "813166c2b2c946988ffa088afa4bc598d8ab06864976d6d89984c45b324f60b3",
+        "size": 6653918
+      },
+      "patches": []
+    }
+  }
+}

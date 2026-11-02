@@ -39,3 +39,20 @@ class ClueLogicTest {
         assertEquals(0, ClueLogic.detectCount(FloatArray(600) { 3f }))
     }
 }
+
+class ClueLogicStackTest {
+    private fun t(v: Int, x: Float, y: Float) = Token(v, x, y, android.graphics.Rect())
+
+    @Test fun stackDropsFarText() {
+        // fila: rejilla empieza en x=500, celda 40; "12" del título lejos a la izquierda
+        val band = listOf(t(12, 60f, 0f), t(3, 470f, 0f), t(1, 430f, 0f), t(2, 390f, 0f))
+        assertEquals(listOf(2, 1, 3), ClueLogic.stack(band, 500f, 40f, true).map { it.value })
+    }
+
+    @Test fun inferCountFromClueGroups() {
+        // 20 filas de 30 px (600 px); algunas sin pista detectada
+        val ys = (0 until 20).filter { it % 7 != 3 }.flatMap { r -> listOf(r * 30f + 15f, r * 30f + 16f) }
+        assertEquals(20, ClueLogic.inferCount(ys, 600f, 6f))
+        assertEquals(0, ClueLogic.inferCount(listOf(10f), 600f, 6f))
+    }
+}

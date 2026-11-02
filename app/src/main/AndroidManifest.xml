@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application
         android:label="Nonograma"
         android:icon="@mipmap/ic_launcher"
@@ -28,5 +30,8 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Burbuja flotante superpuesta para mostrar la solución del nonograma" />
         </service>
+        <receiver android:name=".UpdateReceiver" android:exported="false" />
+        <provider android:name=".UpdateFileProvider" android:authorities="com.felipe.nonograma.updates"
+            android:exported="false" android:grantUriPermissions="true" />
     </application>
 </manifest>

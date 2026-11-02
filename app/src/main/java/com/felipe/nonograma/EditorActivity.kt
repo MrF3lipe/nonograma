@@ -48,7 +48,8 @@ class EditorActivity : Activity() {
         root.addView(top)
         val opts = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         opts.addView(CheckBox(this).apply { text = "Auto"; isChecked = Store.autoSize; setOnCheckedChangeListener { _, c -> Store.autoSize = c } })
-        opts.addView(CheckBox(this).apply { text = "Color"; isChecked = Store.colorMode; setOnCheckedChangeListener { _, c -> Store.colorMode = c; rebuild() } })
+        fun modeText() = when (Store.colorPref) { 1 -> "Color"; 2 -> "B/N"; else -> if (Store.colorMode) "Auto·Color" else "Auto·B/N" }
+        opts.addView(Button(this).apply { text = modeText(); setOnClickListener { Store.colorPref = (Store.colorPref + 1) % 3; text = modeText(); rebuild() } })
         sum = TextView(this).apply { setPadding(dp(12), 0, 0, 0) }
         opts.addView(sum)
         root.addView(opts)
@@ -76,7 +77,7 @@ class EditorActivity : Activity() {
 
     private fun rebuildPalette() {
         palBar.removeAllViews()
-        palBar.visibility = if (Store.colorMode) View.VISIBLE else View.GONE
+        palBar.visibility = if (Store.effectiveColor()) View.VISIBLE else View.GONE
         Store.palette.forEachIndexed { i, c -> palBar.addView(swatch(c).apply { setOnClickListener { pickRgb(c) { n -> Store.palette[i] = n; rebuild() } } }) }
         palBar.addView(Button(this).apply { text = "+"; minWidth = 0; minimumWidth = dp(40); setOnClickListener {
             pickRgb(0xFFE53935.toInt()) { n -> Store.palette.add(n); rebuild() } } })
@@ -107,7 +108,7 @@ class EditorActivity : Activity() {
         val chips = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         fun drawChips() {
             chips.removeAllViews()
-            if (!Store.colorMode) return
+            if (!Store.effectiveColor()) return
             clue.forEachIndexed { k, bl ->
                 chips.addView(TextView(this).apply {
                     text = bl.len.toString(); gravity = Gravity.CENTER
@@ -119,7 +120,7 @@ class EditorActivity : Activity() {
                 })
             }
         }
-        fun mark() { et.setBackgroundColor(if (Solver.minLen(if (Store.colorMode) clue else clue.map { Block(it.len, 1) }) > len) 0x40FF0000 else 0) }
+        fun mark() { et.setBackgroundColor(if (Solver.minLen(if (Store.effectiveColor()) clue else clue.map { Block(it.len, 1) }) > len) 0x40FF0000 else 0) }
         et.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -132,16 +133,16 @@ class EditorActivity : Activity() {
             }
         })
         row.addView(et, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(HorizontalScrollView(this).apply { addView(chips) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { weight = if (Store.colorMode) 1f else 0f })
+        row.addView(HorizontalScrollView(this).apply { addView(chips) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { weight = if (Store.effectiveColor()) 1f else 0f })
         drawChips(); mark()
         lineViews.add(et to chips)
         return row
     }
 
     private fun updateSum() {
-        val k = if (Store.colorMode) Store.palette.size else 1
+        val k = if (Store.effectiveColor()) Store.palette.size else 1
         val bad = (1..k).any { c ->
-            fun s(l: List<List<Block>>) = l.flatten().filter { !Store.colorMode || it.color == c }.sumOf { it.len }
+            fun s(l: List<List<Block>>) = l.flatten().filter { !Store.effectiveColor() || it.color == c }.sumOf { it.len }
             s(Store.rowClues) != s(Store.colClues)
         }
         val a = Store.rowClues.flatten().sumOf { it.len }; val b = Store.colClues.flatten().sumOf { it.len }

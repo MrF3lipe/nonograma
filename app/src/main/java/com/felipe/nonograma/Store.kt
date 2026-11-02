@@ -10,6 +10,9 @@ object Store {
     var rows = 15
     var cols = 15
     var colorMode = false
+    /** 0 = auto, 1 = color, 2 = blanco y negro */
+    var colorPref = 0
+    var framesManual = false
     var autoSize = true
     var locked = false
     val palette = mutableListOf(0xFF000000.toInt())
@@ -30,7 +33,7 @@ object Store {
     }
 
     fun displayColor(idx: Int): Int =
-        if (!colorMode) 0xFF101010.toInt() else palette.getOrElse(idx - 1) { 0xFF101010.toInt() }
+        if (!effectiveColor()) 0xFF101010.toInt() else palette.getOrElse(idx - 1) { 0xFF101010.toInt() }
 
     private fun enc(l: List<List<Block>>) = JSONArray(l.map { line -> JSONArray(line.map { "${it.len}:${it.color}" }) })
     private fun dec(a: JSONArray?): MutableList<MutableList<Block>> {
@@ -59,7 +62,7 @@ object Store {
         try {
             val o = JSONObject(s)
             rows = o.optInt("rows", 15); cols = o.optInt("cols", 15)
-            colorMode = o.optBoolean("color"); autoSize = o.optBoolean("auto", true); locked = o.optBoolean("locked")
+            colorMode = o.optBoolean("color"); autoSize = o.optBoolean("auto", true); locked = o.optBoolean("locked"); colorPref = o.optInt("cp", 0); framesManual = o.optBoolean("fm")
             o.optJSONArray("pal")?.let { a -> palette.clear(); for (i in 0 until a.length()) palette.add(a.getInt(i)) }
             if (palette.isEmpty()) palette.add(0xFF000000.toInt())
             rowClues = dec(o.optJSONArray("rc")); colClues = dec(o.optJSONArray("cc"))
@@ -74,7 +77,7 @@ object Store {
 
     fun save(ctx: Context) {
         val o = JSONObject()
-        o.put("rows", rows); o.put("cols", cols); o.put("color", colorMode); o.put("auto", autoSize); o.put("locked", locked)
+        o.put("rows", rows); o.put("cols", cols); o.put("color", colorMode); o.put("auto", autoSize); o.put("locked", locked); o.put("cp", colorPref); o.put("fm", framesManual)
         o.put("pal", JSONArray(palette)); o.put("rc", enc(rowClues)); o.put("cc", enc(colClues))
         o.put("g", r2j(grid)); o.put("rf", r2j(rowFrame)); o.put("cf", r2j(colFrame))
         o.put("bx", bubbleX); o.put("by", bubbleY); o.put("sh", solH); o.put("sw", solW)
@@ -83,9 +86,11 @@ object Store {
     }
 
     /** Resuelve con las pistas actuales. Devuelve el estado. */
+    fun effectiveColor() = when (colorPref) { 1 -> true; 2 -> false; else -> colorMode }
+
     fun solveNow(timeoutMs: Long = 8000): Solver.Status {
-        val rc = rowClues.map { l -> l.map { if (colorMode) it else Block(it.len, 1) } }
-        val cc = colClues.map { l -> l.map { if (colorMode) it else Block(it.len, 1) } }
+        val rc = rowClues.map { l -> l.map { if (effectiveColor()) it else Block(it.len, 1) } }
+        val cc = colClues.map { l -> l.map { if (effectiveColor()) it else Block(it.len, 1) } }
         val r = Solver.solve(rc, cc, timeoutMs)
         if (r.status == Solver.Status.SOLVED) { solution = r.grid; solH = rows; solW = cols } else solution = null
         return r.status

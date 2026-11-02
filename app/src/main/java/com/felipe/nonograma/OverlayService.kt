@@ -49,6 +49,7 @@ class OverlayService : Service() {
     private lateinit var bar: LinearLayout
     private lateinit var barLp: WindowManager.LayoutParams
     private lateinit var lockBtn: TextView
+    private lateinit var modeBtn: TextView
     private lateinit var grid: GridView
     private lateinit var gridLp: WindowManager.LayoutParams
     private lateinit var rowF: FrameView
@@ -86,7 +87,7 @@ class OverlayService : Service() {
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
         val withProj = intent?.action == ACTION_PROJECTION && data != null && code == Activity.RESULT_OK
         goForeground(withProj || projection != null)
-        if (withProj) startProjection(code, data!!)
+        if (withProj) try { startProjection(code, data!!) } catch (e: Throwable) { ErrorLog.write(this, "proyección", e); Toast.makeText(this, ErrorLog.short("proyección", e), Toast.LENGTH_LONG).show() }
         if (!built) build()
         when {
             intent?.action == ACTION_REFRESH -> { show(); grid.invalidate() }
@@ -141,15 +142,28 @@ class OverlayService : Service() {
         return m
     }
 
+    /** Copia la imagen fila a fila (el rowStride puede tener relleno; la última fila puede ser más corta). */
     private fun grab(): Bitmap? {
         val img = reader?.acquireLatestImage() ?: return null
         try {
             val pl = img.planes[0]
             val ps = pl.pixelStride; val rs = pl.rowStride
-            val bw = rs / ps
-            val b = Bitmap.createBitmap(bw, img.height, Bitmap.Config.ARGB_8888)
-            b.copyPixelsFromBuffer(pl.buffer)
-            return if (bw == img.width) b else Bitmap.createBitmap(b, 0, 0, img.width, img.height)
+            val w = img.width; val h = img.height
+            val buf = pl.buffer
+            val row = ByteArray(w * ps)
+            val px = IntArray(w * h)
+            for (y in 0 until h) {
+                buf.position(y * rs)
+                buf.get(row, 0, minOf(row.size, buf.remaining()))
+                var o = y * w
+                var k = 0
+                for (x in 0 until w) {
+                    val r = row[k].toInt() and 255; val g = row[k + 1].toInt() and 255; val bl = row[k + 2].toInt() and 255
+                    px[o++] = (0xFF shl 24) or (r shl 16) or (g shl 8) or bl
+                    k += ps
+                }
+            }
+            return Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888)
         } finally { img.close() }
     }
 
@@ -166,40 +180,98 @@ class OverlayService : Service() {
         }
         busy = true; bubble.glyph = "…"
         if (!shown) show()
-        if (!framesShown) setFrames(true)
         val bl = screenRect(bubble); val ox = bl.left - bubbleLp.x; val oy = bl.top - bubbleLp.y
         fun abs(l: WindowManager.LayoutParams) = Rect(l.x + ox, l.y + oy, l.x + ox + l.width, l.y + oy + l.height)
-        val g = abs(gridLp); val rf = abs(rowLp); val cf = abs(colLp)
+        val g0 = abs(gridLp); val rf0 = abs(rowLp); val cf0 = abs(colLp)
         val views = listOf(grid, rowF, colF, bar, bubble)
-        reader?.acquireLatestImage()?.close()
+        val vis = views.map { it.visibility }
+        runCatching { reader?.acquireLatestImage()?.close() }
         views.forEach { it.visibility = View.INVISIBLE }
         var tries = 0
         fun attempt() {
-            val bmp = grab()
-            if (bmp == null && tries++ < 8) { main.postDelayed({ attempt() }, 120); return }
-            views.forEach { it.visibility = View.VISIBLE }
+            val bmp = try { grab() } catch (e: Throwable) { views.forEachIndexed { i, v -> v.visibility = vis[i] }; fail("captura", e); return }
+            if (bmp == null && tries++ < 10) { main.postDelayed({ attempt() }, 120); return }
+            views.forEachIndexed { i, v -> v.visibility = vis[i] }
             if (bmp == null) { done("Sin captura"); return }
-            Thread {
-                val msg = try {
-                    val res = ClueReader.read(bmp, g, rf, cf, Store.rows, Store.cols, Store.autoSize)
-                    main.post { applyRead(res) }
-                    null
-                } catch (e: Exception) { "OCR: error" }
-                if (msg != null) main.post { done(msg) }
-            }.start()
+            Thread { analyze(bmp, g0, rf0, cf0, ox, oy) }.start()
         }
         main.postDelayed({ attempt() }, 300)
     }
 
-    private fun applyRead(r: ClueReader.Read) {
+    private fun fail(stage: String, e: Throwable) {
+        ErrorLog.write(this, stage, e)
+        main.post { busy = false; updateGlyph(); Toast.makeText(this, ErrorLog.short(stage, e), Toast.LENGTH_LONG).show() }
+    }
+
+    /** Hilo de fondo: detectar rejilla, ajustar marcos, OCR, resolver. */
+    private fun analyze(bmp: Bitmap, g0: Rect, rf0: Rect, cf0: Rect, ox: Int, oy: Int) {
+        var stage = "captura"
+        try {
+            if (isBlank(bmp)) { main.post { done("Captura vacía") }; return }
+            var g = g0; var rf = rf0; var cf = cf0
+            var rows = Store.rows; var cols = Store.cols
+            var sized = !Store.autoSize
+            if (Store.autoSize) {
+                stage = "rejilla"
+                val w = bmp.width; val h = bmp.height
+                val px = IntArray(w * h); bmp.getPixels(px, 0, w, 0, 0, w, h)
+                val det = GridDetect.detect(px, w, h, minCell = (6 * resources.displayMetrics.density).toInt().coerceAtLeast(6))
+                    ?: detectInside(bmp, g0)
+                if (det != null) {
+                    val ng = Rect(det.left, det.top, det.right, det.bottom)
+                    rows = det.rows; cols = det.cols; sized = true
+                    val dx = ng.left - g.left; val dy = ng.top - g.top
+                    if (Store.framesManual) { rf = Rect(rf).apply { offset(dx, dy) }; cf = Rect(cf).apply { offset(dx, dy) } }
+                    else {
+                        rf = Rect(0, ng.top, ng.left - 1, ng.bottom)
+                        cf = Rect(ng.left, maxOf(0, ng.top - ng.height()), ng.right, ng.top - 1)
+                    }
+                    g = ng
+                }
+            }
+            stage = "ocr"
+            val res = ClueReader.read(bmp, g, rf, cf, rows, cols, infer = !sized)
+            main.post { applyRead(res, g, rf, cf, ox, oy) }
+        } catch (e: Throwable) { fail(stage, e) }
+    }
+
+    /** Segundo intento: buscar la rejilla solo dentro (y alrededor) del cuadro actual. */
+    private fun detectInside(bmp: Bitmap, g: Rect): GridDetect.Grid? {
+        val m = maxOf(g.width(), g.height()) / 10
+        val r = Rect(g.left - m, g.top - m, g.right + m, g.bottom + m)
+        if (!r.intersect(0, 0, bmp.width, bmp.height) || r.width() < 40 || r.height() < 40) return null
+        val px = IntArray(r.width() * r.height()); bmp.getPixels(px, 0, r.width(), r.left, r.top, r.width(), r.height())
+        val d = GridDetect.detect(px, r.width(), r.height()) ?: return null
+        return d.copy(left = d.left + r.left, top = d.top + r.top, right = d.right + r.left, bottom = d.bottom + r.top)
+    }
+
+    private fun isBlank(b: Bitmap): Boolean {
+        val f = b.getPixel(b.width / 2, b.height / 2)
+        for (i in 1..200) {
+            val x = (i * 7919) % b.width; val y = (i * 104729) % b.height
+            if (b.getPixel(x, y) != f) return false
+        }
+        return true
+    }
+
+    private fun applyRead(r: ClueReader.Read, g: Rect, rf: Rect, cf: Rect, ox: Int, oy: Int) {
+        // ajustar ventanas a lo detectado
+        fun set(l: WindowManager.LayoutParams, v: View, s: Rect, dst: Rect) {
+            l.x = s.left - ox; l.y = s.top - oy; l.width = maxOf(minSide(), s.width()); l.height = maxOf(minSide(), s.height())
+            dst.set(l.x, l.y, l.x + l.width, l.y + l.height); wm.updateViewLayout(v, l)
+        }
+        set(gridLp, grid, g, Store.grid); set(rowLp, rowF, rf, Store.rowFrame); set(colLp, colF, cf, Store.colFrame)
         Store.resize(r.rows, r.cols)
         Store.rowClues = r.rowClues.toMutableList(); Store.colClues = r.colClues.toMutableList()
         Store.colorMode = r.colorDetected
         Store.palette.clear(); Store.palette.addAll(r.palette)
         Store.solution = null
+        updateModeChip()
         grid.invalidate()
+        Toast.makeText(this, "${r.rows}×${r.cols} · ${r.tokens}", Toast.LENGTH_SHORT).show()
+        if (r.tokens == 0) { done(null); openEditor(); return }
         Thread {
-            val st = Store.solveNow()
+            val st = try { Store.solveNow() } catch (e: Throwable) { fail("resolver", e); return@Thread }
             main.post {
                 Store.save(this)
                 if (st == Solver.Status.SOLVED) { setFrames(false); grid.invalidate(); done(null) }
@@ -217,7 +289,7 @@ class OverlayService : Service() {
         startActivity(Intent(this, EditorActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP))
     }
 
-    fun refresh() { grid.invalidate(); show() }
+    fun refresh() { updateModeChip(); grid.invalidate(); show() }
 
     // ---------- Ventanas ----------
     private fun lp(x: Int, y: Int, w: Int, h: Int, touchable: Boolean = true) = WindowManager.LayoutParams(
@@ -253,6 +325,7 @@ class OverlayService : Service() {
             setPadding(dp(9), dp(9), dp(9), dp(9)); setOnClickListener { f() }
         }.also { bar.addView(it) }
         btn("Pistas") { setFrames(!framesShown) }
+        modeBtn = btn("Auto") { cycleMode() }
         btn("Leer") { read() }
         btn("Editar") { openEditor() }
         lockBtn = btn("🔓") { setLocked(!Store.locked) }
@@ -276,6 +349,23 @@ class OverlayService : Service() {
         wm.addView(bubble, bubbleLp)
         placeBar()
         updateGlyph()
+        updateModeChip()
+    }
+
+    private fun cycleMode() {
+        Store.colorPref = (Store.colorPref + 1) % 3
+        updateModeChip()
+        if ((Store.rowClues + Store.colClues).any { it.isNotEmpty() }) Thread {
+            val st = Store.solveNow()
+            main.post { Store.save(this); grid.invalidate(); if (st != Solver.Status.SOLVED) Toast.makeText(this, st.name, Toast.LENGTH_SHORT).show() }
+        }.start() else Store.save(this)
+    }
+
+    fun updateModeChip() {
+        if (!::modeBtn.isInitialized) return
+        val c = Store.effectiveColor()
+        modeBtn.text = when (Store.colorPref) { 1 -> "Color"; 2 -> "B/N"; else -> if (c) "Auto·Color" else "Auto·B/N" }
+        modeBtn.setTextColor(if (c) 0xFFFF8A80.toInt() else 0xFFFFFFFF.toInt())
     }
 
     private fun placeBar() {
@@ -357,6 +447,7 @@ class OverlayService : Service() {
         if (resize) { l.width = maxOf(minSide(), l.width + dx); l.height = maxOf(minSide(), l.height + dy) }
         else { l.x += dx; l.y += dy }
         r.set(l.x, l.y, l.x + l.width, l.y + l.height)
+        Store.framesManual = true
         wm.updateViewLayout(v, l)
         if (fin) Store.save(this)
     }

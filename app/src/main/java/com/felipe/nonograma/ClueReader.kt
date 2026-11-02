@@ -42,6 +42,45 @@ object ClueLogic {
         return out.map { l -> l.sortedBy { if (byRow) it.cx else it.cy }.filter { it.value > 0 } }
     }
 
+    /**
+     * Mantiene solo la "pila" de números pegada a la rejilla en cada banda: desde el más cercano al
+     * borde hacia fuera, mientras el hueco no supere maxGap celdas (descarta textos lejanos: título, nivel, reloj).
+     * edge = borde de la rejilla (left para filas, top para columnas).
+     */
+    fun stack(band: List<Token>, edge: Float, cell: Float, byRow: Boolean, maxGap: Float = 3f): List<Token> {
+        val near = band.sortedByDescending { if (byRow) it.cx else it.cy }
+        val out = ArrayList<Token>()
+        var last = edge
+        for (t in near) {
+            val p = if (byRow) t.cx else t.cy
+            if (p > edge + cell * 0.5f) continue // dentro de la rejilla
+            if (last - p > maxGap * cell) break
+            out.add(t); last = p
+        }
+        return out.reversed()
+    }
+
+    /**
+     * Estima el número de bandas (filas o columnas) a partir de los centros de los números:
+     * agrupa centros cercanos y mide el paso típico. 0 si no es fiable.
+     */
+    fun inferCount(centers: List<Float>, size: Float, joinTol: Float): Int {
+        if (centers.size < 2) return 0
+        val s = centers.sorted()
+        val groups = ArrayList<Float>(); var acc = s[0]; var n = 1; var last = s[0]
+        for (i in 1 until s.size) {
+            if (s[i] - last <= joinTol) { acc += s[i]; n++ } else { groups.add(acc / n); acc = s[i]; n = 1 }
+            last = s[i]
+        }
+        groups.add(acc / n)
+        if (groups.size < 2) return 0
+        val diffs = (1 until groups.size).map { groups[it] - groups[it - 1] }.sorted()
+        val pitch = diffs[diffs.size / 2]
+        if (pitch <= 0f) return 0
+        val est = (size / pitch).roundToInt()
+        return if (est >= groups.size && est <= groups.size * 2 && est in 2..99) est else 0
+    }
+
     private fun chroma(c: Int): Int {
         val r = (c shr 16) and 255; val g = (c shr 8) and 255; val b = c and 255
         return max(r, max(g, b)) - min(r, min(g, b))
@@ -102,7 +141,7 @@ object ClueLogic {
 /** Lectura de pistas desde una captura de pantalla con ML Kit (offline). */
 object ClueReader {
     class Read(val rows: Int, val cols: Int, val rowClues: List<MutableList<Block>>, val colClues: List<MutableList<Block>>,
-               val palette: List<Int>, val colorDetected: Boolean)
+               val palette: List<Int>, val colorDetected: Boolean, val tokens: Int)
 
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
@@ -190,31 +229,24 @@ object ClueReader {
         return (m.maxByOrNull { it.value }?.key ?: 0xFFFFFFFF.toInt()) or 0xFF000000.toInt()
     }
 
-    /** Perfil de bordes de la rejilla para detectar filas/columnas. */
-    fun detectGrid(bmp: Bitmap, g: Rect): Pair<Int, Int> {
-        val r = clip(g, bmp) ?: return 0 to 0
-        val w = r.width(); val h = r.height()
-        val px = IntArray(w * h); bmp.getPixels(px, 0, w, r.left, r.top, w, h)
-        fun lum(p: Int) = (((p shr 16) and 255) * 3 + ((p shr 8) and 255) * 6 + (p and 255)) / 10f
-        val colP = FloatArray(w); val rowP = FloatArray(h)
-        val step = 2
-        for (y in 0 until h step step) for (x in 1 until w) colP[x] += abs(lum(px[y * w + x]) - lum(px[y * w + x - 1]))
-        for (y in 1 until h) for (x in 0 until w step step) rowP[y] += abs(lum(px[y * w + x]) - lum(px[(y - 1) * w + x]))
-        return ClueLogic.detectCount(rowP) to ClueLogic.detectCount(colP)
-    }
-
-    fun read(screen: Bitmap, grid: Rect, rowFrame: Rect, colFrame: Rect, rowsCfg: Int, colsCfg: Int, auto: Boolean): Read {
-        var rows = rowsCfg; var cols = colsCfg
-        if (auto) {
-            val (dr, dc) = detectGrid(screen, grid)
-            if (dr in 2..99) rows = dr
-            if (dc in 2..99) cols = dc
+    /**
+     * Lee las pistas. Si infer=true y no se conoce el tamaño, lo estima de los grupos de números.
+     */
+    fun read(screen: Bitmap, grid: Rect, rowFrame: Rect, colFrame: Rect, rowsIn: Int, colsIn: Int, infer: Boolean): Read {
+        var rows = rowsIn; var cols = colsIn
+        val rt = ocr(screen, rowFrame, grid.height().toFloat() / rows, grid, rows, true)
+        val ct = ocr(screen, colFrame, grid.width().toFloat() / cols, grid, cols, false)
+        if (infer) {
+            val hts = (rt + ct).map { it.box.height().toFloat() }.sorted()
+            val tol = if (hts.isEmpty()) 8f else hts[hts.size / 2] * 0.6f
+            ClueLogic.inferCount(rt.map { it.cy }, grid.height().toFloat(), tol).let { if (it > 0) rows = it }
+            ClueLogic.inferCount(ct.map { it.cx }, grid.width().toFloat(), tol).let { if (it > 0) cols = it }
         }
         val cellH = grid.height().toFloat() / rows; val cellW = grid.width().toFloat() / cols
-        val rt = ocr(screen, rowFrame, cellH, grid, rows, true)
-        val ct = ocr(screen, colFrame, cellW, grid, cols, false)
-        val ra = ClueLogic.assign(rt, rows, grid.top.toFloat(), grid.height().toFloat(), true)
-        val ca = ClueLogic.assign(ct, cols, grid.left.toFloat(), grid.width().toFloat(), false)
+        val ra = ClueLogic.assign(rt.filter { it.box.height() <= cellH * 2.5f }, rows, grid.top.toFloat(), grid.height().toFloat(), true)
+            .map { ClueLogic.stack(it, grid.left.toFloat(), cellW, true) }
+        val ca = ClueLogic.assign(ct.filter { it.box.height() <= cellW * 2.5f }, cols, grid.left.toFloat(), grid.width().toFloat(), false)
+            .map { ClueLogic.stack(it, grid.top.toFloat(), cellH, false) }
         val all = (ra + ca).flatten()
         for (t in all) t.rgb = sampleColor(screen, t.box)
         val (pal, idx) = ClueLogic.cluster(all.map { it.rgb })
@@ -222,6 +254,6 @@ object ClueReader {
         val color = pal.size > 1
         val rowClues = ra.map { l -> l.map { Block(it.value, if (color) map[it]!! else 1) }.toMutableList() }
         val colClues = ca.map { l -> l.map { Block(it.value, if (color) map[it]!! else 1) }.toMutableList() }
-        return Read(rows, cols, rowClues, colClues, if (color) pal else listOf(0xFF000000.toInt()), color)
+        return Read(rows, cols, rowClues, colClues, if (color) pal else listOf(0xFF000000.toInt()), color, rt.size + ct.size)
     }
 }

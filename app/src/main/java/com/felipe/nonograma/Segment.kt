@@ -93,6 +93,11 @@ object Segment {
             if (g.h > (y1 - y0) * 0.95f && g.w > (y1 - y0)) continue // línea/borde
             out.add(g)
         }
+        // trozos de línea vertical (muy estrechos y más altos que los dígitos)
+        if (out.size > 1) {
+            val mh = out.map { it.h }.sorted()[out.size / 2]
+            out.removeAll { it.w * 6 < it.h && it.h > mh * 1.4f }
+        }
         return out
     }
 
@@ -128,21 +133,25 @@ object Segment {
      *  - si los dígitos van pegados, cada glifo es un número, salvo glifos contiguos con un color
      *    destacado distinto del predominante de la línea (p. ej. "10" en amarillo).
      */
-    fun groupRow(gl: List<Glyph>): List<Group> {
+    fun groupRow(gl: List<Glyph>, domIn: Int? = null): List<Group> {
         if (gl.isEmpty()) return emptyList()
         val hgt = gl.map { it.h }.sorted()[gl.size / 2].toFloat()
         val gaps = (1 until gl.size).map { gl[it].x0 - gl[it - 1].x1 }
         val sortedGaps = gaps.sorted()
         val maxGap = sortedGaps.lastOrNull() ?: 0
         val minGap = sortedGaps.firstOrNull() ?: 0
-        val spaced = gaps.isNotEmpty() && maxGap > hgt * 0.35f && maxGap > 2.2f * max(1, minGap)
+        // solo si hay espacios claros entre números y los dígitos de un número van casi pegados
+        val spaced = gaps.isNotEmpty() && maxGap > hgt * 0.6f && maxGap > 3f * max(1, minGap) && minGap <= hgt * 0.15f
         // color predominante de la línea
-        val dom = gl.groupBy { q -> gl.count { dist(it.rgb, q.rgb) < 110 } }.maxByOrNull { it.key }!!.value[0].rgb
+        val dom = domIn ?: dominant(gl)
         val out = ArrayList<Group>()
         var cur = mutableListOf(gl[0]); var hl = false
         for (i in 1 until gl.size) {
             val a = gl[i - 1]; val b = gl[i]
-            val sameHighlight = dist(a.rgb, b.rgb) < 110 && dist(a.rgb, dom) > 150 && !isNeutral(a.rgb) && gaps[i - 1] <= hgt * 0.35f
+            // tinta de color en una línea neutra (o muy distinta del predominante): número destacado
+            val chrom = !isNeutral(a.rgb) || !isNeutral(b.rgb)
+            val differs = (isNeutral(dom) && chrom) || dist(a.rgb, dom) > 150
+            val sameHighlight = chrom && dist(a.rgb, b.rgb) < 140 && differs && dist(b.rgb, dom) > 60 && dist(a.rgb, dom) > 60 && gaps[i - 1] <= hgt * 0.35f
             val tight = spaced && gaps[i - 1] < maxGap * 0.45f
             if (sameHighlight || tight) { cur.add(b); if (sameHighlight) hl = true }
             else { out.add(Group(cur, avg(cur), hl)); cur = mutableListOf(b); hl = false }
@@ -151,11 +160,59 @@ object Segment {
         return out
     }
 
+    /** Color predominante de la tinta (preferir neutros: el texto normal suele ser blanco/negro). */
+    fun dominant(gl: List<Glyph>): Int {
+        if (gl.isEmpty()) return 0xFFFFFFFF.toInt()
+        val neutral = gl.filter { isNeutral(it.rgb) }
+        val pool = if (neutral.size * 3 >= gl.size) neutral else gl
+        return pool.maxByOrNull { q -> pool.count { dist(it.rgb, q.rgb) < 90 } }!!.rgb
+    }
+
     private fun avg(g: List<Glyph>): Int {
         var r = 0; var gg = 0; var b = 0
         for (q in g) { r += (q.rgb shr 16) and 255; gg += (q.rgb shr 8) and 255; b += q.rgb and 255 }
         val n = g.size
         return (0xFF shl 24) or ((r / n) shl 16) or ((gg / n) shl 8) or (b / n)
+    }
+
+    /** Rasgo de un glifo para clasificación por vecino más cercano: tinta remuestreada a 10x16 + proporción. */
+    fun feature(px: IntArray, w: Int, g: Glyph): FloatArray? {
+        val ink = ink(px, w, g.x0, g.y0, g.x1, g.y1) ?: return null
+        val fw = 10; val fh = 16
+        val f = FloatArray(fw * fh + 1)
+        for (y in 0 until fh) for (x in 0 until fw) {
+            val sx = (x + 0.5f) * ink.w / fw; val sy = (y + 0.5f) * ink.h / fh
+            f[y * fw + x] = ink.a[min(ink.h - 1, sy.toInt()) * ink.w + min(ink.w - 1, sx.toInt())]
+        }
+        f[fw * fh] = 4f * g.w / max(1, g.h)
+        return f
+    }
+
+    /** Dígito del ejemplo etiquetado más parecido (-1 si no hay ejemplos). */
+    fun nearest(f: FloatArray, labeled: List<Pair<FloatArray, Int>>): Int {
+        var best = -1; var bd = Float.MAX_VALUE
+        for ((g, d) in labeled) {
+            var s = 0f
+            for (i in f.indices) { val e = f[i] - g[i]; s += e * e }
+            if (s < bd) { bd = s; best = d }
+        }
+        return best
+    }
+
+    /**
+     * Completa los glifos sin dígito (OCR vacío) por vecino más cercano contra los glifos ya
+     * reconocidos de la misma captura (misma fuente). Devuelve cuántos se completaron.
+     */
+    fun fillUnknown(glyphs: List<Glyph>, digit: MutableMap<Glyph, Int>, feat: (Glyph) -> FloatArray?): Int {
+        val labeled = glyphs.mapNotNull { g -> digit[g]?.takeIf { it >= 0 }?.let { d -> feat(g)?.let { it to d } } }
+        if (labeled.isEmpty()) return 0
+        var n = 0
+        for (g in glyphs) if ((digit[g] ?: -1) < 0) {
+            val f = feat(g) ?: continue
+            val d = nearest(f, labeled)
+            if (d >= 0) { digit[g] = d; n++ }
+        }
+        return n
     }
 
     /** Pila de números de una columna pegada a la rejilla (de abajo hacia arriba, huecos ≤ maxGap celdas). */

@@ -44,13 +44,15 @@ object GridDetect {
         val m = if (horizontal) w else h          // longitud a lo largo
         val minLen = maxOf(40, m / 6)
         val raw = ArrayList<Line>()
-        for (p in 1 until n) {
+        for (p in 2 until n) {
             var bestLen = 0; var bestA = 0; var bestB = 0
             var runStart = -1; var lastHit = -10
             for (q in 0 until m) {
                 val i = if (horizontal) p * w + q else q * w + p
                 val j = if (horizontal) i - w else i - 1
-                if (abs(L[i] - L[j]) >= T) {
+                val j2 = if (horizontal) i - 2 * w else i - 2
+                // borde a 1 o 2 px (capturas reescaladas/borrosas)
+                if (abs(L[i] - L[j]) >= T || abs(L[i] - L[j2]) >= T + 8) {
                     if (q - lastHit > 8) runStart = q
                     lastHit = q
                     val len = q - runStart + 1
@@ -92,24 +94,22 @@ object GridDetect {
                     a = minOf(a, found.a); b = maxOf(b, found.b); k = kk + 1
                 } else {
                     misses++
-                    if (misses > 1) break
+                    if (misses > 2) break
                     lastPos = exp
                 }
             }
             if (cells < 2) continue
-            if (hits < 0.8f * (cells + 1)) continue
+            if (hits < 0.7f * (cells + 1)) continue
             res.add(Chain(ls[i].pos, lastHit, cells, a, b))
         }
         // mantener las de más celdas
         return res.sortedByDescending { it.cells }.take(40)
     }
 
+    /** Misma familia de líneas: extensiones que se solapan al menos la mitad de la más corta... y de la más larga. */
     private fun similar(x: Line, y: Line): Boolean {
-        val len = maxOf(x.b - x.a, y.b - y.a)
-        val tol = maxOf(10, len / 12)
-        if (abs(x.a - y.a) <= tol && abs(x.b - y.b) <= tol) return true
-        // una contiene a la otra (p. ej. el borde superior se extiende sobre la zona de pistas)
-        val minLen = minOf(x.b - x.a, y.b - y.a)
-        return minLen > len / 2 && ((x.a <= y.a + tol && x.b >= y.b - tol) || (y.a <= x.a + tol && y.b >= x.b - tol))
+        val ov = minOf(x.b, y.b) - maxOf(x.a, y.a)
+        val lx = x.b - x.a; val ly = y.b - y.a
+        return ov >= 0.8f * minOf(lx, ly) && ov >= 0.45f * maxOf(lx, ly)
     }
 }

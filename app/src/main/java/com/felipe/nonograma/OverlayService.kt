@@ -270,6 +270,7 @@ class OverlayService : Service() {
         updateModeChip()
         grid.invalidate()
         Toast.makeText(this, "${r.rows}×${r.cols} · ${r.tokens}", Toast.LENGTH_SHORT).show()
+        ErrorLog.write(this, "lectura", RuntimeException("${r.rows}x${r.cols} tokens=${r.tokens} ${ClueReader.lastStats}"))
         if (r.tokens == 0) { done(null); openEditor(); return }
         Thread {
             val st = try { Store.solveNow() } catch (e: Throwable) { fail("resolver", e); return@Thread }

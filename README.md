@@ -29,3 +29,9 @@ Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest
 
 - 🔢 Lectura de pistas con segmentación propia: dígitos pegados (`132123` → 1 3 2 1 2 3), números destacados en color (`10` amarillo) y columnas apiladas en texto claro sobre fondo oscuro
 - 📐 Detección de rejilla más robusta (bordes que se extienden sobre la zona de pistas)
+
+## 🆕 1.0.3
+
+- 🩹 Ninguna línea queda vacía si hay dígitos: reintento de OCR por línea con otro preprocesado y, como último recurso, reconocimiento por parecido con los dígitos ya leídos de la misma captura
+- 🟡 Números destacados (`11`, `10` en amarillo) detectados aunque la fila tenga mayoría de color
+- 📐 Rejilla detectada también en capturas de baja resolución

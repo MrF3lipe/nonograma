@@ -78,13 +78,32 @@ class CluePipelineTest {
     @Test fun givesUpWithinLimitsAndMarksDoubtful() {
         val s = shot("juego2.jpg")
         val t0 = System.currentTimeMillis()
-        val o = run(s, CluePipeline.Limits(maxVariants = 3, maxCombos = 30, timeMs = 4000)) { l, d ->
+        val o = run(s, CluePipeline.Limits(maxVariants = 3, maxCombos = 30, timeMs = 4000, deduce = false)) { l, d ->
             val (r, c) = CluePipeline.bw(l, d, 20, 20)
             r.mapIndexed { i, x -> if (i == 2) x + Block(19) else x } to c
         }
         assertFalse(o.ok); assertTrue(o.attempts <= 3)
         assertTrue(System.currentTimeMillis() - t0 < 8000)
         assertTrue(2 in o.doubtRows)
+    }
+
+    /** Una línea ilegible (p. ej. tapada): se deduce del resto si la solución es única. */
+    @Test fun hiddenLineDeducedWhenUnique() {
+        val s = shot("juego2.jpg")
+        var truth: List<List<Block>>? = null
+        val o = run(s, CluePipeline.Limits(maxVariants = 2, maxCombos = 10)) { l, d ->
+            val (r, c) = CluePipeline.bw(l, d, 20, 20)
+            if (truth == null) truth = r
+            r.mapIndexed { i, x -> if (i == 2) x + Block(19) else x } to c
+        }
+        assertTrue(o.ok); assertTrue(o.log, o.log.contains("deducidas"))
+        assertEquals(truth!![2], o.rows[2])
+    }
+
+    @Test fun deductionRefusesAmbiguous() {
+        // 5x5 con un 1 por línea (permutaciones): con líneas desconocidas hay muchas soluciones → no deduce
+        val rows = List(5) { listOf(Block(1)) }; val cols = List(5) { listOf(Block(1)) }
+        assertNull(CluePipeline.deduceHidden(rows, cols, setOf(0, 1), setOf(0, 1), System.currentTimeMillis() + 2000))
     }
 
     @Test fun timeCapStopsRetries() {

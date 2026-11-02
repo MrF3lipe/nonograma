@@ -175,8 +175,11 @@ class OverlayService : Service() {
         return Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height)
     }
 
-    fun read() {
+    private var captureTry = 0
+
+    fun read(keepTry: Boolean = false) {
         if (busy || playing) return
+        if (!keepTry) captureTry = 0
         if (projection == null) {
             startActivity(Intent(this, ProjectionActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra(EXTRA_READ, true))
             return
@@ -286,9 +289,15 @@ class OverlayService : Service() {
         Toast.makeText(this, "${r.rows}×${r.cols} · ${r.tokens}", Toast.LENGTH_SHORT).show()
         ErrorLog.write(this, "lectura", RuntimeException("${r.rows}x${r.cols} tokens=${r.tokens} ${ClueReader.lastStats}"))
         if (r.tokens == 0) { done(null); openEditor(); return }
+        if (!r.valid && captureTry < 2) {
+            // captura nueva (por si la anterior salió con algo encima o a medio dibujar)
+            ErrorLog.write(this, "pistas", RuntimeException("captura ${captureTry + 1} no válida, se repite; leídas: ${CluePipeline.dump(r.rowClues, r.colClues)}"))
+            captureTry++; busy = false; main.postDelayed({ read(keepTry = true) }, 250); return
+        }
+        captureTry = 0
         if (!r.valid) {
             // tras los reintentos las pistas siguen sin ser resolubles: no resolver, marcar líneas dudosas
-            ErrorLog.write(this, "pistas", RuntimeException("no válidas tras reintentos; dudosas filas=${r.doubtRows.map { it + 1 }.sorted()} columnas=${r.doubtCols.map { it + 1 }.sorted()} ${ClueReader.lastStats}"))
+            ErrorLog.write(this, "pistas", RuntimeException("no válidas tras reintentos (captura ${captureTry + 1}); ${r.rows}x${r.cols} dudosas filas=${r.doubtRows.map { it + 1 }.sorted()} columnas=${r.doubtCols.map { it + 1 }.sorted()} leídas: ${CluePipeline.dump(r.rowClues, r.colClues)} | ${ClueReader.lastStats}"))
             Store.save(this); done(null); openEditor(); return
         }
         Thread {

@@ -26,7 +26,7 @@ object CluePipeline {
     /** Pares que el reconocedor confunde a menudo: se prueban antes. */
     private val CONFUSABLE = setOf(6 to 8, 8 to 6, 3 to 8, 8 to 3, 1 to 7, 7 to 1, 0 to 8, 8 to 0, 5 to 6, 6 to 5, 9 to 8, 8 to 9)
 
-    class Limits(val maxVariants: Int = VARIANTS.size, val maxCombos: Int = 400, val timeMs: Long = 9000, val solveMs: Long = 600)
+    class Limits(val maxVariants: Int = VARIANTS.size, val maxCombos: Int = 400, val timeMs: Long = 9000, val solveMs: Long = 600, val deduce: Boolean = true)
 
     enum class Problem { SUMA, NO_CABE, VACIA, SIN_SOLUCION, CONTRADICCION }
     class Check(val problems: Set<Problem>, val badRows: Set<Int>, val badCols: Set<Int>) { val ok get() = problems.isEmpty() }
@@ -107,6 +107,12 @@ object CluePipeline {
     }
 
     /** Línea con tinta que no es un "0" explícito (una línea vacía con un 0 es válida). */
+    /** Pistas tal como se leyeron, para errores.log: "f1=1 1 4|f2=…" y "c1=…". */
+    fun dump(rows: List<List<Block>>, cols: List<List<Block>>): String {
+        fun l(p: String, x: List<List<Block>>) = x.mapIndexed { i, b -> "$p${i + 1}=" + b.joinToString(" ") { if (it.color > 1) "${it.len}:${it.color}" else "${it.len}" } }.joinToString("|")
+        return "filas[" + l("f", rows) + "] columnas[" + l("c", cols) + "]"
+    }
+
     fun inkRows(groups: List<List<Segment.Group>>, digit: Map<Segment.Glyph, Int>) =
         BooleanArray(groups.size) { i -> groups[i].any { g -> g.glyphs.any { (digit[it] ?: -1) != 0 } } }
 
@@ -203,6 +209,47 @@ object CluePipeline {
             val score = chk.badRows.size + chk.badCols.size + chk.problems.size * 3
             if (score < bestScore) { best = o; bestScore = score }
         }
-        return best?.let { Outcome(it.lines, it.digit, it.rows, it.cols, it.check, attempts, totalCombos, it.variant, log.toString().trim(), it.doubtRows, it.doubtCols) }
+        val b = best ?: return null
+        // Último recurso: líneas tapadas o ilegibles. Se dejan como desconocidas y, si el resto de pistas
+        // determina una solución única, sus pistas se deducen de ella.
+        if (limits.deduce) deduceHidden(b.rows, b.cols, b.doubtRows + b.check.badRows, b.doubtCols + b.check.badCols, deadline + limits.timeMs / 3, now)?.let { (r, c, hidden) ->
+            log.append(" deducidas=${hidden}")
+            return Outcome(b.lines, b.digit, r, c, Check(emptySet(), emptySet(), emptySet()), attempts, totalCombos, b.variant, log.toString().trim(), emptySet(), emptySet())
+        }
+        return Outcome(b.lines, b.digit, b.rows, b.cols, b.check, attempts, totalCombos, b.variant, log.toString().trim(), b.doubtRows, b.doubtCols)
+    }
+
+    /**
+     * Prueba conjuntos pequeños de líneas dudosas como desconocidas (de menos a más líneas).
+     * Acepta solo si hay exactamente una solución; devuelve pistas completas y qué líneas se dedujeron.
+     */
+    fun deduceHidden(rows: List<List<Block>>, cols: List<List<Block>>, candRows: Set<Int>, candCols: Set<Int>,
+                     deadline: Long, now: () -> Long = { System.currentTimeMillis() }, maxPerSide: Int = 2): Triple<List<List<Block>>, List<List<Block>>, String>? {
+        if ((rows + cols).flatten().any { it.color != 1 }) return null // solo B/N
+        val h = rows.size; val w = cols.size
+        if (h < 5 || w < 5) return null // muy pocas pistas para deducir nada con seguridad
+        fun subsets(c: List<Int>): List<List<Int>> {
+            val out = mutableListOf(emptyList<Int>())
+            for (i in c.indices) { out.add(listOf(c[i])); if (maxPerSide >= 2) for (j in i + 1 until c.size) out.add(listOf(c[i], c[j])) }
+            return out
+        }
+        // las líneas en los bordes (zona de pistas más expuesta a tapas) primero
+        fun order(c: Set<Int>, n: Int) = c.filter { it in 0 until n }.sortedBy { minOf(it, n - 1 - it) }.take(7)
+        val sr = subsets(order(candRows, h)); val sc = subsets(order(candCols, w))
+        val pairs = sr.flatMap { a -> sc.map { bb -> a to bb } }.filter { it.first.size + it.second.size > 0 }.sortedBy { it.first.size + it.second.size }
+        for ((ur, uc) in pairs) {
+            if (now() > deadline) return null
+            val R = rows.mapIndexed { i, l -> if (i in ur) null else l }
+            val C = cols.mapIndexed { i, l -> if (i in uc) null else l }
+            val sols = Solver.solveUnknown(R, C, 400, 2) ?: continue
+            if (sols.size != 1) continue
+            val g = sols[0]
+            fun clue(line: IntArray) = Solver.runs(line).map { Block(it.len) }
+            val nr = (0 until h).map { r -> if (r in ur) clue(IntArray(w) { g[r * w + it] }) else rows[r] }
+            val nc = (0 until w).map { c -> if (c in uc) clue(IntArray(h) { g[it * w + c] }) else cols[c] }
+            if (!Solver.verify(nr, nc, g)) continue
+            return Triple(nr, nc, "f${ur.map { it + 1 }} c${uc.map { it + 1 }}")
+        }
+        return null
     }
 }

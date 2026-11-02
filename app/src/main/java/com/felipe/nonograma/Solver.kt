@@ -77,11 +77,46 @@ object Solver {
         }
     }
 
-    private class Ctx(val h: Int, val w: Int, val R: List<List<Block>>, val C: List<List<Block>>, val deadline: Long) {
-        val rowL = R.map { l -> IntArray(l.size) { l[it].len } }
-        val rowC = R.map { l -> IntArray(l.size) { l[it].color } }
-        val colL = C.map { l -> IntArray(l.size) { l[it].len } }
-        val colC = C.map { l -> IntArray(l.size) { l[it].color } }
+    /**
+     * Resuelve con líneas de pista desconocida (null = cualquier contenido). Devuelve hasta [limit]
+     * soluciones distintas (para saber si la deducida es única) o null si se agota el tiempo.
+     */
+    fun solveUnknown(rows: List<List<Block>?>, cols: List<List<Block>?>, timeoutMs: Long = 2000, limit: Int = 2): List<IntArray>? {
+        val h = rows.size; val w = cols.size
+        if (h == 0 || w == 0) return emptyList()
+        val R = rows.map { l -> l?.filter { it.len > 0 } }
+        val C = cols.map { l -> l?.filter { it.len > 0 } }
+        if (R.any { it != null && minLen(it) > w } || C.any { it != null && minLen(it) > h }) return emptyList()
+        val k = (R.filterNotNull() + C.filterNotNull()).flatten().maxOfOrNull { it.color } ?: 1
+        val full = (1 shl (k + 1)) - 1
+        val ctx = Ctx(h, w, R, C, System.currentTimeMillis() + timeoutMs)
+        val out = ArrayList<IntArray>()
+        return try {
+            val g = IntArray(h * w) { full }
+            if (ctx.propagate(g, BooleanArray(h) { true }, BooleanArray(w) { true })) ctx.branchAll(g, out, limit)
+            out.map { sol -> IntArray(h * w) { Integer.numberOfTrailingZeros(sol[it]) } }
+        } catch (e: Timeout) { null }
+    }
+
+    private class Ctx(val h: Int, val w: Int, val R: List<List<Block>?>, val C: List<List<Block>?>, val deadline: Long) {
+        val rowL = R.map { l -> l?.let { IntArray(it.size) { i -> it[i].len } } }
+        val rowC = R.map { l -> l?.let { IntArray(it.size) { i -> it[i].color } } }
+        val colL = C.map { l -> l?.let { IntArray(it.size) { i -> it[i].len } } }
+        val colC = C.map { l -> l?.let { IntArray(it.size) { i -> it[i].color } } }
+
+        /** Enumeración de soluciones (sin sondeo, para no descartar nada) hasta [limit]. */
+        fun branchAll(g: IntArray, out: MutableList<IntArray>, limit: Int) {
+            if (out.size >= limit) return
+            if (System.currentTimeMillis() > deadline) throw Timeout()
+            var best = -1; var bestBits = 99
+            for (i in g.indices) { val b = Integer.bitCount(g[i]); if (b > 1 && b < bestBits) { best = i; bestBits = b; if (b == 2) break } }
+            if (best < 0) { out.add(g); return }
+            for (o in options(g[best])) {
+                val ng = tryValue(g, best, o) ?: continue
+                branchAll(ng, out, limit)
+                if (out.size >= limit) return
+            }
+        }
         var steps = 0
 
         fun propagate(g: IntArray, dirtyRows: BooleanArray, dirtyCols: BooleanArray): Boolean {
@@ -92,13 +127,15 @@ object Solver {
                 for (r in 0 until h) if (dirtyRows[r]) {
                     dirtyRows[r] = false; any = true
                     for (c in 0 until w) rowBuf[c] = g[r * w + c]
-                    val res = solveLine(rowBuf, rowL[r], rowC[r]) ?: return false
+                    val rl = rowL[r] ?: continue
+                    val res = solveLine(rowBuf, rl, rowC[r]!!) ?: return false
                     for (c in 0 until w) if (res[c] != g[r * w + c]) { g[r * w + c] = res[c]; dirtyCols[c] = true }
                 }
                 for (c in 0 until w) if (dirtyCols[c]) {
                     dirtyCols[c] = false; any = true
                     for (r in 0 until h) colBuf[r] = g[r * w + c]
-                    val res = solveLine(colBuf, colL[c], colC[c]) ?: return false
+                    val cl = colL[c] ?: continue
+                    val res = solveLine(colBuf, cl, colC[c]!!) ?: return false
                     for (r in 0 until h) if (res[r] != g[r * w + c]) { g[r * w + c] = res[r]; dirtyRows[r] = true }
                 }
                 if ((++steps and 63) == 0 && System.currentTimeMillis() > deadline) throw Timeout()

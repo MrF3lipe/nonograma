@@ -1,5 +1,6 @@
 package com.felipe.nonograma
 
+import org.junit.Assert.*
 import org.junit.Test
 import java.io.File
 import javax.imageio.ImageIO
@@ -12,6 +13,19 @@ import javax.imageio.ImageIO
 class PipelineAllTest {
     private val dirs = (System.getenv("NONO_DIRS") ?: "/workspace/entregas/nonograma/capturas:/home/box/telegram-relay/media").split(":")
 
+    companion object {
+        /** Nonogramas que deben salir con pistas válidas y resueltas. */
+        val MUST_PASS = setOf("juego.jpg", "juego2.jpg", "tg-1526.jpg", "tg-1534.jpg", "tg-1535.jpg", "tg-1536.jpg", "tg-1537.jpg", "tg-1538.jpg", "tg-1539.jpg")
+        /** Capturas que no son nonogramas: nunca deben dar pistas "válidas". */
+        val NOT_PUZZLE = setOf("tg-667.jpg")
+        /**
+         * tg-1549: el mismo puzzle que tg-1536, pero con la superposición visible en la captura: las asas tapan
+         * la pista de la fila 20 ("6 9") y la columna 20 ("20") y parte de la fila 19 y la columna 19. Con esas
+         * 4 líneas desconocidas hay 2 soluciones, así que no se puede deducir: debe marcarlas como dudosas.
+         */
+        val OCCLUDED = mapOf("tg-1549.jpg" to (setOf(18, 19) to setOf(18, 19)))
+    }
+
     @Test fun allImages() {
         val files = dirs.flatMap { d -> File(d).listFiles { f -> f.name.endsWith(".jpg") || f.name.endsWith(".png") }?.toList() ?: emptyList() }
             .sortedBy { it.name }
@@ -19,6 +33,7 @@ class PipelineAllTest {
         val report = StringBuilder()
         val truth = DigitEvalTest.FIX
         var okImgs = 0; var puzzles = 0
+        val failures = ArrayList<String>()
         for (f in files) {
             val im = ImageIO.read(f) ?: continue
             val w = im.width; val h = im.height; val px = im.getRGB(0, 0, w, h, null, 0, w)
@@ -31,6 +46,9 @@ class PipelineAllTest {
             val ms = System.currentTimeMillis() - t0
             if (o == null) { report.append("${f.path}: ${g.rows}x${g.cols} sin glifos\n"); continue }
             if (o.ok) okImgs++
+            if (f.name in MUST_PASS && !o.ok) failures.add(f.name)
+            if (f.name in NOT_PUZZLE && o.ok) failures.add("${f.name} (no es nonograma)")
+            OCCLUDED[f.name]?.let { (r, c) -> if (o.ok || !o.doubtRows.containsAll(r) || !o.doubtCols.containsAll(c)) failures.add("${f.name} (tapada: debe marcar f$r c$c)") }
             var digitsTxt = "glifos=${o.lines.glyphs.size}"
             truth[f.name]?.let { (rt, ct) ->
                 val all = (o.lines.rowGroups.zip(rt) + o.lines.colGroups.zip(ct)).sumOf { (gs, t) ->
@@ -46,5 +64,6 @@ class PipelineAllTest {
         report.append("TOTAL: $okImgs/$puzzles válidas y resueltas\n")
         println(report)
         File("build/pipeline-report.txt").writeText(report.toString())
+        assertTrue("fallan: $failures", failures.isEmpty())
     }
 }

@@ -340,22 +340,52 @@ object ClueReader {
         val lines = rowGroups + colGroups
         val glyphs = lines.flatten().flatMap { it.glyphs }
         if (glyphs.isEmpty()) return null
+        // 1) ML Kit solo como voto secundario (si falla, no pasa nada)
+        val mlk = HashMap<Segment.Glyph, Int>()
+        try { ocrLines(px, w, lines, MAIN, mlk) } catch (e: Throwable) { lastStats = "mlkit: ${e.javaClass.simpleName}" }
+        // 2) reconocedor propio (plantillas + consistencia dentro de la captura)
+        val feats = glyphs.map { Segment.digitFeat(it) }
+        val pred = DigitClassifier.classifyAll(feats, glyphs.map { mlk[it] ?: -1 })
         val digit = HashMap<Segment.Glyph, Int>()
-        ocrLines(px, w, lines, MAIN, digit)
-        // Reintentos: solo las líneas con glifos sin dígito, con otro preprocesado (más grande, binarizado, separado).
-        var retried = 0
-        for (st in RETRY) {
-            val bad = lines.filter { l -> l.any { g -> g.glyphs.any { (digit[it] ?: -1) < 0 } } }
-            if (bad.isEmpty()) break
-            retried += bad.size
-            // de una en una para que ML Kit no mezcle líneas
-            for (l in bad) ocrLines(px, w, listOf(l), st, digit)
+        glyphs.forEachIndexed { i, g -> digit[g] = pred[i] }
+        val disagree = glyphs.count { (mlk[it] ?: -1) >= 0 && mlk[it] != digit[it] }
+        // 3) reparación: si las pistas no dan un puzzle resoluble, probar las alternativas más dudosas
+        val margins = glyphs.indices.mapNotNull { i ->
+            val f = feats[i] ?: return@mapNotNull null
+            val sc = DigitClassifier.scores(f); val r = (0..9).sortedBy { sc[it] }
+            val alt = if (r[0] == pred[i]) r[1] else r[0]
+            Triple(i, alt, sc[alt] - sc[pred[i]])
+        }.sortedBy { it.third }.take(12)
+        lastStats = "glifos=${glyphs.size} mlkit_distinto=$disagree"
+        var result = build(rowGroups, colGroups, digit, rows, cols)
+        if (!solvable(result)) {
+            var fixed = false
+            for ((i, alt, _) in margins) {
+                val g = glyphs[i]; val old = digit[g]!!
+                digit[g] = alt
+                val r = build(rowGroups, colGroups, digit, rows, cols)
+                if (solvable(r)) { result = r; fixed = true; lastStats += " reparado=${'$'}old→${'$'}alt"; break }
+                digit[g] = old
+            }
+            if (!fixed) outer@ for (x in margins.indices) for (y in x + 1 until margins.size) {
+                val (i, ai, _) = margins[x]; val (j, aj, _) = margins[y]
+                val oi = digit[glyphs[i]]!!; val oj = digit[glyphs[j]]!!
+                digit[glyphs[i]] = ai; digit[glyphs[j]] = aj
+                val r = build(rowGroups, colGroups, digit, rows, cols)
+                if (solvable(r)) { result = r; fixed = true; lastStats += " reparado2"; break@outer }
+                digit[glyphs[i]] = oi; digit[glyphs[j]] = oj
+            }
         }
-        // Último recurso: vecino más cercano contra los glifos ya reconocidos de esta misma captura.
-        val nn = Segment.fillUnknown(glyphs, digit) { Segment.feature(px, w, it) }
-        val unknown = glyphs.count { (digit[it] ?: -1) < 0 }
-        lastStats = "glifos=${glyphs.size} reintentos=$retried vecino=$nn sin_leer=$unknown"
+        return result
+    }
 
+    private fun solvable(r: Read): Boolean {
+        val rc = r.rowClues; val cc = r.colClues
+        if (rc.flatten().sumOf { it.len } != cc.flatten().sumOf { it.len }) return false
+        return Solver.solve(rc, cc, 1500).status == Solver.Status.SOLVED
+    }
+
+    private fun build(rowGroups: List<List<Segment.Group>>, colGroups: List<List<Segment.Group>>, digit: Map<Segment.Glyph, Int>, rows: Int, cols: Int): Read {
         fun values(l: List<Segment.Group>, len: Int): Pair<List<Int>, List<Segment.Group>> {
             val keep = l.filter { g -> g.glyphs.any { (digit[it] ?: -1) >= 0 } }
             val ds = keep.map { g -> g.glyphs.mapNotNull { digit[it]?.takeIf { d -> d >= 0 } } }

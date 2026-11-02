@@ -13,8 +13,8 @@ android {
         applicationId = "com.felipe.nonograma"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = 5
+        versionName = "1.0.4"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     signingConfigs {

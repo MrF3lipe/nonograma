@@ -12,6 +12,8 @@ import kotlin.math.min
 object Segment {
     /** Glifo en coordenadas de pantalla. rgb = color medio de la tinta. */
     class Glyph(val x0: Int, val y0: Int, val x1: Int, val y1: Int, val rgb: Int) {
+        /** Tinta del glifo (con 1 px de margen) calculada con el fondo de toda la banda. */
+        var alpha: FloatArray? = null; var aw = 0; var ah = 0
         val cx get() = (x0 + x1) / 2f
         val cy get() = (y0 + y1) / 2f
         val h get() = y1 - y0
@@ -77,7 +79,11 @@ object Segment {
         }
         if (n < 4 || top < 0) return null
         val rgb = (0xFF shl 24) or ((rs / n).toInt() shl 16) or ((gs / n).toInt() shl 8) or (bs / n).toInt()
-        return Glyph(ink.left + x0, ink.top + top, ink.left + x1, ink.top + bot, rgb)
+        val g = Glyph(ink.left + x0, ink.top + top, ink.left + x1, ink.top + bot, rgb)
+        val ax0 = maxOf(0, x0 - 1); val ax1 = minOf(ink.w, x1 + 1); val ay0 = maxOf(0, top - 1); val ay1 = minOf(ink.h, bot + 1)
+        g.aw = ax1 - ax0; g.ah = ay1 - ay0
+        g.alpha = FloatArray(g.aw * g.ah) { ink.a[(ay0 + it / g.aw) * ink.w + ax0 + it % g.aw] }
+        return g
     }
 
     /** Glifos de una banda de fila (izquierda→derecha). Recorta 15 % arriba/abajo para evitar separadores. */
@@ -176,6 +182,9 @@ object Segment {
     }
 
     /** Rasgo de un glifo para clasificación por vecino más cercano: tinta remuestreada a 10x16 + proporción. */
+    /** Rasgos del reconocedor propio para un glifo segmentado. */
+    fun digitFeat(g: Glyph): DigitClassifier.Feat? = g.alpha?.let { DigitClassifier.features(it, g.aw, g.ah) }
+
     fun feature(px: IntArray, w: Int, g: Glyph): FloatArray? {
         val ink = ink(px, w, g.x0, g.y0, g.x1, g.y1) ?: return null
         val fw = 10; val fh = 16

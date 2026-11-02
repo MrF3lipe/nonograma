@@ -17,10 +17,20 @@ object GridDetect {
 
     fun lum(p: Int) = (((p shr 16) and 255) * 3 + ((p shr 8) and 255) * 6 + (p and 255)) / 10
 
+    /** Prueba varios umbrales/modos (capturas nítidas, reescaladas o con JPEG fuerte) y se queda con la mayor rejilla. */
     fun detect(px: IntArray, w: Int, h: Int, minCell: Int = 6): Grid? {
         val L = IntArray(w * h) { lum(px[it]) }
-        val hl = lines(L, w, h, horizontal = true)
-        val vl = lines(L, w, h, horizontal = false)
+        var best: Grid? = null
+        for ((t, ridge) in listOf(22 to false, 14 to false, 12 to true)) {
+            val g = detectWith(L, w, h, minCell, t, ridge) ?: continue
+            if (best == null || g.rows * g.cols > best.rows * best.cols) best = g
+        }
+        return best
+    }
+
+    private fun detectWith(L: IntArray, w: Int, h: Int, minCell: Int, t: Int, ridge: Boolean): Grid? {
+        val hl = lines(L, w, h, horizontal = true, t = t, ridge = ridge)
+        val vl = lines(L, w, h, horizontal = false, t = t, ridge = ridge)
         val hc = chains(hl, minCell)
         val vc = chains(vl, minCell)
         var best: Grid? = null; var bestScore = 0
@@ -39,20 +49,23 @@ object GridDetect {
     }
 
     /** Líneas largas: filas (o columnas) con un tramo largo de bordes, fusionando posiciones cercanas. */
-    fun lines(L: IntArray, w: Int, h: Int, horizontal: Boolean): List<Line> {
+    fun lines(L: IntArray, w: Int, h: Int, horizontal: Boolean, t: Int = T, ridge: Boolean = false): List<Line> {
         val n = if (horizontal) h else w          // posiciones
         val m = if (horizontal) w else h          // longitud a lo largo
         val minLen = maxOf(40, m / 6)
         val raw = ArrayList<Line>()
-        for (p in 2 until n) {
+        for (p in 2 until n - 2) {
             var bestLen = 0; var bestA = 0; var bestB = 0
             var runStart = -1; var lastHit = -10
             for (q in 0 until m) {
                 val i = if (horizontal) p * w + q else q * w + p
                 val j = if (horizontal) i - w else i - 1
                 val j2 = if (horizontal) i - 2 * w else i - 2
-                // borde a 1 o 2 px (capturas reescaladas/borrosas)
-                if (abs(L[i] - L[j]) >= T || abs(L[i] - L[j2]) >= T + 8) {
+                val k2 = if (horizontal) i + 2 * w else i + 2
+                // borde a 1 o 2 px (capturas reescaladas/borrosas) o cresta de una línea fina
+                val hit = if (ridge) abs(2 * L[i] - L[j2] - L[k2]) >= 2 * t
+                          else abs(L[i] - L[j]) >= t || abs(L[i] - L[j2]) >= t + 8
+                if (hit) {
                     if (q - lastHit > 8) runStart = q
                     lastHit = q
                     val len = q - runStart + 1

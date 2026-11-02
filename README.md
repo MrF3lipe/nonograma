@@ -35,3 +35,9 @@ Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest
 - 🩹 Ninguna línea queda vacía si hay dígitos: reintento de OCR por línea con otro preprocesado y, como último recurso, reconocimiento por parecido con los dígitos ya leídos de la misma captura
 - 🟡 Números destacados (`11`, `10` en amarillo) detectados aunque la fila tenga mayoría de color
 - 📐 Rejilla detectada también en capturas de baja resolución
+
+## 1.0.4
+- Reconocedor de dígitos propio (sin ML Kit como principal): plantillas de fuentes libres + glifos reales, agujeros, perfiles y consistencia dentro de la captura. ML Kit queda como voto secundario.
+- Corrige confusiones 6/8 y 3/8 y filas que quedaban vacías.
+- Reparación automática: si las pistas no dan un puzzle resoluble, prueba las lecturas alternativas más dudosas.
+- Detección de rejilla más robusta en capturas reescaladas o con JPEG fuerte.

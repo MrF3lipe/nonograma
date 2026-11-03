@@ -544,14 +544,25 @@ class OverlayService : Service() {
      * la barra pasó del ancho de la pantalla y los últimos botones («Ocultar», «✕») quedaban fuera, recortados.
      */
     private fun flowBar() {
-        val maxW = realMetrics().widthPixels - dp(8) - bar.paddingLeft - bar.paddingRight
+        // 5 % de margen por si el sistema dibuja el texto algo más ancho de lo medido
+        val maxW = ((realMetrics().widthPixels - dp(8) - bar.paddingLeft - bar.paddingRight) * 0.95f).toInt()
         val spec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        val widths = barButtons.map { it.measure(spec, spec); it.measuredWidth }
+        // ancho de cada botón con su texto más largo posible: el de modo se creaba como «Auto» y luego pasaba a
+        // «Auto·B/N»/«Auto·Color», la fila medida con «Auto» se salía de la pantalla y el último botón de la
+        // primera fila (el selector de velocidad / el candado) quedaba recortado a ancho 0.
+        val variants = mapOf<TextView, List<String>>(modeBtn to listOf("Auto·Color", "Auto·B/N", "Color", "B/N"),
+            playBtn to listOf("▶", "■"), recBtn to listOf("⏺", "⏹"), speedBtn to listOf("1x", "2x", "3x"), lockBtn to listOf("🔒", "🔓"))
+        val widths = barButtons.map { b ->
+            val cur = b.text
+            val w = (variants[b] ?: listOf(cur.toString())).maxOf { t -> b.text = t; b.measure(spec, spec); b.measuredWidth }
+            b.text = cur; w
+        }
         bar.removeAllViews()
         for (row in BarFlow.rows(widths, maxW)) {
             val ll = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             for (i in row) { (barButtons[i].parent as? android.view.ViewGroup)?.removeView(barButtons[i]); ll.addView(barButtons[i]) }
-            bar.addView(ll)
+            // y si aun así no cabe, la fila se desplaza en vez de recortar botones
+            bar.addView(android.widget.HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(ll) })
         }
     }
 

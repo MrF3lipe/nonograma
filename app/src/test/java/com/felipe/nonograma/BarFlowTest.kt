@@ -28,3 +28,20 @@ class BarFlowTest {
         assertEquals(listOf(listOf(0), listOf(1)), BarFlow.rows(listOf(500, 50), 100))
     }
 }
+
+/** La fila se calcula con el texto más largo de cada botón: si el modo crece a «Auto·Color», nada se sale. */
+class BarFlowLongestTextTest {
+    @Test fun modeTextGrowthDoesNotOverflow() {
+        val d = 2.625f; val maxW = 1080 - (16 * d).toInt()
+        fun w(t: String) = (18 * d + t.length * 8.2f * d).toInt()
+        val shortLabels = listOf("Pistas", "Auto", "Leer", "Editar", "⏺", "▶", "1x", "🔓", "Ocultar", "⟲", "✕")
+        val longest = shortLabels.map { if (it == "Auto") "Auto·Color" else it }
+        // como en 1.0.11: filas calculadas con «Auto», mostradas con «Auto·Color» → la primera fila se sale
+        val old = BarFlow.rows(shortLabels.map(::w), maxW)
+        assertTrue(old.any { r -> r.sumOf { w(longest[it]) } > maxW })
+        // ahora: filas con el texto más largo
+        val now = BarFlow.rows(longest.map(::w), maxW)
+        for (r in now) assertTrue(r.sumOf { w(longest[it]) } <= maxW)
+        assertEquals(shortLabels.indices.toList(), now.flatten())
+    }
+}

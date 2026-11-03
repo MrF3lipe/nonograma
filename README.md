@@ -76,3 +76,6 @@ Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest
 - El auto-acople solo ocurre al pulsar «Leer» (ya no al soltar el cuadro o los marcos).
 - Barra en varias filas: en 1.0.10 era una sola fila y, con ⏺ y 1x/2x/3x, «Ocultar», la velocidad y ✕ se salían de la pantalla.
 - Nuevo ⟲: cuadro y marcos a su posición inicial y sin pistas ni solución.
+
+## 1.0.12
+- El selector de velocidad (1x/2x/3x) vuelve a verse: la barra se repartía midiendo el botón de modo como «Auto» y luego pasaba a «Auto·B/N»/«Auto·Color», la primera fila se salía y los últimos botones quedaban recortados. Ahora cada botón se mide con su texto más largo, hay margen y, si algo no cabe, la fila se desplaza en vez de recortar.

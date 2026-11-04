@@ -13,8 +13,8 @@ android {
         applicationId = "com.felipe.nonograma"
         minSdk = 26
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.0.12"
+        versionCode = 14
+        versionName = "1.0.13"
         ndk { abiFilters += listOf("arm64-v8a") }
     }
     signingConfigs {
@@ -38,11 +38,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     packaging { jniLibs { useLegacyPackaging = true } }
-    testOptions { unitTests.isReturnDefaultValues = true }
+    testOptions { unitTests.isReturnDefaultValues = true; unitTests.isIncludeAndroidResources = true }
 }
 
 dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
     testImplementation("org.json:json:20240303")
 }

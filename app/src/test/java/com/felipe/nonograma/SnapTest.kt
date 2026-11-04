@@ -40,10 +40,12 @@ class SnapTest {
 
 class SpeedTest {
     @Test fun speedsAreFaster() {
-        val t1 = AutoPlan.interval(150, 1) + AutoPlan.stroke(1)
-        val t2 = AutoPlan.interval(150, 2) + AutoPlan.stroke(2)
-        val t3 = AutoPlan.interval(150, 3) + AutoPlan.stroke(3)
+        val t1 = AutoPlan.interval(150, 1f) + AutoPlan.stroke(1f)
+        val t2 = AutoPlan.interval(150, 2f) + AutoPlan.stroke(2f)
+        val t3 = AutoPlan.interval(150, 3f) + AutoPlan.stroke(3f)
         assertTrue(t1 / t2.toFloat() >= 1.9f); assertTrue(t1 / t3.toFloat() >= 2.8f)
-        assertEquals(1, AutoPlan.interval(150, 9).let { if (it == 50L) 1 else 0 })
+        // cualquier velocidad, no solo 1x/2x/3x
+        assertEquals(30L, AutoPlan.interval(150, 5f)); assertEquals(15L, AutoPlan.interval(150, 10f))
+        assertEquals(300L, AutoPlan.interval(150, 0.5f)); assertEquals(10L, AutoPlan.stroke(50f))
     }
 }

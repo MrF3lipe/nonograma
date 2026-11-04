@@ -25,7 +25,7 @@ object Store {
     var gridScreen = Rect()
     var tapMs = 150
     /** Velocidad del autoresolver: 1x, 2x o 3x sobre [tapMs]. */
-    var speed = 1
+    var speed = 1f
     fun intervalMs(): Long = AutoPlan.interval(tapMs, speed)
     fun strokeMs(): Long = AutoPlan.stroke(speed)
     var solH = 0; var solW = 0
@@ -90,7 +90,7 @@ object Store {
             if (palette.isEmpty()) palette.add(0xFF000000.toInt())
             rowClues = dec(o.optJSONArray("rc")); colClues = dec(o.optJSONArray("cc"))
             grid = j2r(o.optJSONArray("g"), grid); rowFrame = j2r(o.optJSONArray("rf"), rowFrame); colFrame = j2r(o.optJSONArray("cf"), colFrame)
-            gridScreen = j2r(o.optJSONArray("gs"), gridScreen); tapMs = o.optInt("tms", 150); speed = o.optInt("spd", 1).coerceIn(1, 3)
+            gridScreen = j2r(o.optJSONArray("gs"), gridScreen); tapMs = o.optInt("tms", 150); speed = AutoPlan.clampSpeed(o.optDouble("spd", 1.0).toFloat())
             bubbleX = o.optInt("bx", 0); bubbleY = o.optInt("by", 300)
             solH = o.optInt("sh"); solW = o.optInt("sw")
             o.optJSONArray("sol")?.let { a -> solution = IntArray(a.length()) { a.getInt(it) } }
@@ -104,7 +104,7 @@ object Store {
         o.put("rows", rows); o.put("cols", cols); o.put("color", colorMode); o.put("auto", autoSize); o.put("locked", locked); o.put("cp", colorPref); o.put("fm", framesManual)
         o.put("pal", JSONArray(palette)); o.put("rc", enc(rowClues)); o.put("cc", enc(colClues))
         o.put("g", r2j(grid)); o.put("rf", r2j(rowFrame)); o.put("cf", r2j(colFrame))
-        o.put("gs", r2j(gridScreen)); o.put("tms", tapMs); o.put("spd", speed)
+        o.put("gs", r2j(gridScreen)); o.put("tms", tapMs); o.put("spd", speed.toDouble())
         o.put("bx", bubbleX); o.put("by", bubbleY); o.put("sh", solH); o.put("sw", solW)
         solution?.let { o.put("sol", JSONArray(it.toList())) }
         ctx.getSharedPreferences("n", Context.MODE_PRIVATE).edit().putString("s", o.toString()).apply()

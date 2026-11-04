@@ -47,8 +47,32 @@ class MainActivity : Activity() {
                 LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             list.addView(row)
         }
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; isFocusableInTouchMode = true; descendantFocusability = ViewGroup.FOCUS_BEFORE_DESCENDANTS }
         root.addView(ScrollView(this).apply { addView(list) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        if (OverlayService.instance == null) Store.load(this)
+        // ajustes: velocidad del autoresolver (cualquier número) y modo de color
+        val cfg = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), dp(6), dp(12), 0) }
+        val speedIn = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(fmtSpeed(Store.speed)); setSelectAllOnFocus(true); isSingleLine = true; gravity = Gravity.END
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(e: android.text.Editable?) {
+                    val v = e?.toString()?.replace(',', '.')?.toFloatOrNull() ?: return
+                    if (v > 0f) { Store.speed = AutoPlan.clampSpeed(v); Store.save(this@MainActivity) }
+                }
+            })
+        }
+        cfg.addView(TextView(this).apply { text = "⏩"; textSize = 18f })
+        cfg.addView(speedIn, LinearLayout.LayoutParams(dp(88), ViewGroup.LayoutParams.WRAP_CONTENT))
+        cfg.addView(TextView(this).apply { text = "x"; textSize = 16f; setPadding(dp(4), 0, dp(12), 0) })
+        fun modeText() = when (Store.colorPref) { 1 -> "Color"; 2 -> "B/N"; else -> "Auto" }
+        cfg.addView(Button(this).apply {
+            text = modeText()
+            setOnClickListener { Store.colorPref = (Store.colorPref + 1) % 3; text = modeText(); Store.save(this@MainActivity); OverlayService.instance?.modeChanged() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(cfg)
         val bar = LinearLayout(this).apply { setPadding(dp(12), dp(6), dp(12), dp(12)) }
         permBtn = Button(this).apply { text = "Permisos"; setOnClickListener { askPerms() } }
         startBtn = Button(this).apply { text = "Iniciar burbuja"; setOnClickListener { startBubble() } }
@@ -67,6 +91,8 @@ class MainActivity : Activity() {
         startBtn.isEnabled = ok
         startBtn.text = if (OverlayService.instance != null) "Reiniciar burbuja" else "Iniciar burbuja"
     }
+
+    private fun fmtSpeed(v: Float) = if (v == v.toInt().toFloat()) v.toInt().toString() else v.toString()
 
     private fun askPerms() {
         if (!Settings.canDrawOverlays(this))

@@ -58,7 +58,6 @@ class OverlayService : Service() {
     private var playing = false
     private lateinit var grid: GridView
     private lateinit var gridLp: WindowManager.LayoutParams
-    private lateinit var speedBtn: TextView
     private val barButtons = ArrayList<TextView>()
     private lateinit var rowF: FrameView
     private lateinit var rowLp: WindowManager.LayoutParams
@@ -443,12 +442,9 @@ class OverlayService : Service() {
             setPadding(dp(9), dp(9), dp(9), dp(9)); setOnClickListener { f() }
         }.also { barButtons.add(it) }
         btn("Pistas") { setFrames(!framesShown) }
-        modeBtn = btn("Auto") { cycleMode() }
         btn("Leer") { read() }
         btn("Editar") { openEditor() }
-        recBtn = btn("⏺") { toggleRec() }
         playBtn = btn("▶") { togglePlay() }
-        speedBtn = btn("${Store.speed}x") { Store.speed = Store.speed % 3 + 1; speedBtn.text = "${Store.speed}x"; Store.save(this) }
         lockBtn = btn("🔓") { setLocked(!Store.locked) }
         btn("Ocultar") { hide() }
         btn("⟲") { resetAll() }
@@ -523,9 +519,8 @@ class OverlayService : Service() {
         updateGlyph()
     }
 
-    private fun cycleMode() {
-        Store.colorPref = (Store.colorPref + 1) % 3
-        updateModeChip()
+    /** El modo (Auto/Color/B/N) se elige en la app principal; aquí se vuelve a resolver con él. */
+    fun modeChanged() {
         if ((Store.rowClues + Store.colClues).any { it.isNotEmpty() }) Thread {
             val st = Store.solveNow()
             main.post { Store.save(this); grid.invalidate(); if (st != Solver.Status.SOLVED) Toast.makeText(this, st.name, Toast.LENGTH_SHORT).show() }
@@ -550,9 +545,11 @@ class OverlayService : Service() {
         // ancho de cada botón con su texto más largo posible: el de modo se creaba como «Auto» y luego pasaba a
         // «Auto·B/N»/«Auto·Color», la fila medida con «Auto» se salía de la pantalla y el último botón de la
         // primera fila (el selector de velocidad / el candado) quedaba recortado a ancho 0.
-        val variants = mapOf<TextView, List<String>>(modeBtn to listOf("Auto·Color", "Auto·B/N", "Color", "B/N"),
-            playBtn to listOf("▶", "■"), recBtn to listOf("⏺", "⏹"), speedBtn to listOf("1x", "2x", "3x"), lockBtn to listOf("🔒", "🔓"))
+        val variants = mapOf<TextView, List<String>>(playBtn to listOf("▶", "■"), lockBtn to listOf("🔒", "🔓"))
         val widths = barButtons.map { b ->
+            // 1.0.12 cambiaba el texto de botones aún sin LayoutParams: TextView.setText → checkForRelayout lanzaba
+            // NullPointerException, build() moría y la burbuja no llegaba a abrirse. Con LayoutParams ya no.
+            if (b.layoutParams == null) b.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             val cur = b.text
             val w = (variants[b] ?: listOf(cur.toString())).maxOf { t -> b.text = t; b.measure(spec, spec); b.measuredWidth }
             b.text = cur; w

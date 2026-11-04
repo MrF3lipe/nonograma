@@ -2,10 +2,12 @@ package com.felipe.nonograma
 
 /** Plan de toques del autoresolver (puro, testeable): centros de las casillas rellenas, en zigzag por filas. */
 object AutoPlan {
-    /** Pausa entre toques: la base dividida por la velocidad (1x/2x/3x). */
-    fun interval(baseMs: Int, speed: Int): Long = maxOf(10L, baseMs.toLong() / speed.coerceIn(1, 3))
-    /** Duración del toque: 40 ms a 1x, más corto a 2x/3x (sigue siendo un toque, no una pulsación larga). */
-    fun stroke(speed: Int): Long = when (speed.coerceIn(1, 3)) { 1 -> 40L; 2 -> 25L; else -> 15L }
+    /** Velocidad válida: cualquier número positivo (0,1 … 100). */
+    fun clampSpeed(speed: Float): Float = if (speed.isNaN()) 1f else speed.coerceIn(0.1f, 100f)
+    /** Pausa entre toques: la base dividida por la velocidad. */
+    fun interval(baseMs: Int, speed: Float): Long = maxOf(1L, (baseMs / clampSpeed(speed)).toLong())
+    /** Duración del toque: 40 ms a 1x, más corto a más velocidad, nunca menos de 10 ms (sigue siendo un toque). */
+    fun stroke(speed: Float): Long = (40f / clampSpeed(speed)).toLong().coerceIn(10L, 40L)
 
     data class Tap(val x: Float, val y: Float, val row: Int, val col: Int)
 

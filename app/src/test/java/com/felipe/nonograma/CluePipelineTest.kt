@@ -137,4 +137,35 @@ class CluePipelineTest {
         assertTrue(AutoPlan.taps(rows, cols, intArrayOf(1, 1, 0, 0), 2, 2, 100, 200, 300, 400).isEmpty())
         assertTrue(AutoPlan.taps(rows, cols, null, 2, 2, 100, 200, 300, 400).isEmpty())
     }
+
+    @Test fun autoPlanStrokesOnePerRun() {
+        // 1×5 con pistas [2,2]: dos bloques → dos trazos (no 4 toques)
+        val rows = listOf(b(2, 2))
+        val cols = listOf(b(1), b(1), b(), b(1), b(1))
+        val sol = intArrayOf(1, 1, 0, 1, 1)
+        val s = AutoPlan.strokes(rows, cols, sol, 1, 5, 0, 0, 500, 100)
+        assertEquals(2, s.size)
+        assertEquals(0, s[0].row); assertEquals(0, s[0].c0); assertEquals(1, s[0].c1)
+        assertEquals(0, s[1].row); assertEquals(3, s[1].c0); assertEquals(4, s[1].c1)
+        // centros: celda w=100 → c0=50, c1=150; c3=350, c4=450
+        assertEquals(50f, s[0].x0); assertEquals(150f, s[0].x1)
+        assertEquals(350f, s[1].x0); assertEquals(450f, s[1].x1)
+        // celda suelta = un trazo corto
+        val rows2 = listOf(b(1)); val cols2 = listOf(b(1))
+        val one = AutoPlan.strokes(rows2, cols2, intArrayOf(1), 1, 1, 0, 0, 100, 100)
+        assertEquals(1, one.size); assertEquals(one[0].c0, one[0].c1)
+        assertTrue(one[0].x1 > one[0].x0 || one[0].y1 > one[0].y0)
+        // inválido → vacío
+        assertTrue(AutoPlan.strokes(rows, cols, intArrayOf(1, 1, 1, 1, 1), 1, 5, 0, 0, 500, 100).isEmpty())
+        // menos gestos que taps en el 2×2 verificado
+        val rows3 = listOf(b(1), b(2)); val cols3 = listOf(b(2), b(1))
+        val sol3 = intArrayOf(1, 0, 1, 1)
+        val taps = AutoPlan.taps(rows3, cols3, sol3, 2, 2, 100, 200, 300, 400)
+        val strokes = AutoPlan.strokes(rows3, cols3, sol3, 2, 2, 100, 200, 300, 400)
+        assertEquals(3, taps.size)
+        assertEquals(2, strokes.size) // fila0: un 1; fila1: bloque de 2
+        assertTrue(AutoPlan.strokeFor(1, 1f) >= 40L)
+        assertTrue(AutoPlan.strokeFor(5, 3f) >= 40L)
+        assertTrue(AutoPlan.strokeFor(5, 1f) <= 400L)
+    }
 }

@@ -66,7 +66,12 @@ class MainActivity : Activity() {
         }
         cfg.addView(TextView(this).apply { text = "⏩"; textSize = 18f })
         cfg.addView(speedIn, LinearLayout.LayoutParams(dp(88), ViewGroup.LayoutParams.WRAP_CONTENT))
-        cfg.addView(TextView(this).apply { text = "x"; textSize = 16f; setPadding(dp(4), 0, dp(12), 0) })
+        cfg.addView(TextView(this).apply { text = "x"; textSize = 16f; setPadding(dp(4), 0, dp(8), 0) })
+        cfg.addView(Button(this).apply {
+            fun fillText() = if (Store.dragRuns) "Pista" else "Celda"
+            text = fillText()
+            setOnClickListener { Store.dragRuns = !Store.dragRuns; text = fillText(); Store.save(this@MainActivity) }
+        }, LinearLayout.LayoutParams(dp(72), ViewGroup.LayoutParams.WRAP_CONTENT))
         fun modeText() = when (Store.colorPref) { 1 -> "Color"; 2 -> "B/N"; else -> "Auto" }
         cfg.addView(Button(this).apply {
             text = modeText()

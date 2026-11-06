@@ -492,9 +492,12 @@ class OverlayService : Service() {
                 val color = Store.effectiveColor()
                 val rc = Store.rowClues.map { l -> l.map { if (color) it else Block(it.len, 1) } }
                 val cc = Store.colClues.map { l -> l.map { if (color) it else Block(it.len, 1) } }
-                val taps = if (st == Solver.Status.SOLVED) AutoPlan.taps(rc, cc, Store.solution, Store.rows, Store.cols, g.left, g.top, g.right, g.bottom) else emptyList()
+                val solved = st == Solver.Status.SOLVED
+                val taps = if (solved && !Store.dragRuns) AutoPlan.taps(rc, cc, Store.solution, Store.rows, Store.cols, g.left, g.top, g.right, g.bottom) else emptyList()
+                val strokes = if (solved && Store.dragRuns) AutoPlan.strokes(rc, cc, Store.solution, Store.rows, Store.cols, g.left, g.top, g.right, g.bottom) else emptyList()
                 val svc = AutoTapService.instance
-                if (taps.isEmpty() || svc == null) { updateGlyph(); if (st != Solver.Status.SOLVED) openEditor(); return@post }
+                val empty = if (Store.dragRuns) strokes.isEmpty() else taps.isEmpty()
+                if (empty || svc == null) { updateGlyph(); if (st != Solver.Status.SOLVED) openEditor(); return@post }
                 playing = true; playBtn.text = "■"
                 // la superposición no debe recibir los toques: rejilla no táctil y barra oculta
                 setLocked(true); grid.visibility = View.GONE
@@ -504,7 +507,9 @@ class OverlayService : Service() {
                 // que se apliquen los cambios de ventana antes del primer gesto.
                 main.postDelayed({
                     if (!playing) return@postDelayed
-                    svc.play(taps, Store.intervalMs(), Store.strokeMs(), onStep = {}, onEnd = { main.post { endPlay() } })
+                    val end: (Boolean) -> Unit = { main.post { endPlay() } }
+                    if (Store.dragRuns) svc.playStrokes(strokes, Store.intervalMs(), Store.speed, onStep = {}, onEnd = end)
+                    else svc.play(taps, Store.intervalMs(), Store.strokeMs(), onStep = {}, onEnd = end)
                 }, PLAY_START_DELAY_MS)
             }
         }.start()

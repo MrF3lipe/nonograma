@@ -94,4 +94,53 @@ class GridDetectTest {
         val ms = (System.nanoTime() - t) / 1e6
         println("detect 1080x2400: %.0f ms".format(ms)); assertTrue(ms < 3000)
     }
+
+    @Test fun texturedBackgroundWithClueFrame() {
+        // Cartón con pistas enmarcadas + fondo con textura, como la captura tg-1732.
+        val rnd = Random(42)
+        val img = Img(360, 800, 0xFFFFFFFF.toInt())
+        // fondo floral: motas oscuras por toda la imagen
+        for (i in 0 until 4000) {
+            val x = rnd.nextInt(360); val y = rnd.nextInt(800)
+            val s = 2 + rnd.nextInt(4)
+            img.rect(x, y, x + s, y + s, if (rnd.nextBoolean()) 0xFF6B6B6B.toInt() else 0xFFD8D8D8.toInt())
+        }
+        val cell = 16; val n = 14
+        val clueR = 3; val clueC = 2
+        val left = 80; val top = 280
+        val playL = left + clueC * cell; val playT = top + clueR * cell
+        // cartón claro que tapa el fondo
+        img.rect(left - 8, top - 8, left + (clueC + n) * cell + 8, top + (clueR + n) * cell + 8, 0xFFF5F5F0.toInt())
+        // celdas beige de pistas
+        val beige = 0xFFE8E0B0.toInt()
+        for (r in 0 until clueR) for (c in 0 until n)
+            img.rect(playL + c * cell + 1, top + r * cell + 1, playL + (c + 1) * cell, top + (r + 1) * cell, beige)
+        for (r in 0 until n) for (c in 0 until clueC)
+            img.rect(left + c * cell + 1, playT + r * cell + 1, left + (c + 1) * cell, playT + (r + 1) * cell, beige)
+        // dígitos (bloques oscuros) en las pistas
+        for (c in 0 until n) img.rect(playL + c * cell + 5, top + (clueR - 1) * cell + 4, playL + c * cell + 11, top + (clueR - 1) * cell + 12, 0xFF222222.toInt())
+        for (r in 0 until n) img.rect(left + (clueC - 1) * cell + 5, playT + r * cell + 4, left + (clueC - 1) * cell + 11, playT + r * cell + 12, 0xFF222222.toInt())
+        // rejilla completa (pistas + jugable), líneas cada 5 más gruesas medidas desde el área jugable
+        val line = 0xFF444444.toInt()
+        val totalR = clueR + n; val totalC = clueC + n
+        for (r in 0..totalR) {
+            val y = top + r * cell
+            val t = if (r == 0 || r == totalR || r == clueR || (r > clueR && (r - clueR) % 5 == 0) ) 3 else 1
+            img.rect(left, y, left + totalC * cell + t, y + t, line)
+        }
+        for (c in 0..totalC) {
+            val x = left + c * cell
+            val t = if (c == 0 || c == totalC || c == clueC || (c > clueC && (c - clueC) % 5 == 0) ) 3 else 1
+            img.rect(x, top, x + t, top + totalR * cell + t, line)
+        }
+        val g = GridDetect.detect(img.px, img.w, img.h, 6)
+        assertNotNull("no detectada", g)
+        g!!
+        assertEquals("filas jugables", n, g.rows)
+        assertEquals("cols jugables", n, g.cols)
+        val tol = 6
+        assertTrue("left ${g.left} vs $playL", kotlin.math.abs(g.left - playL) <= tol)
+        assertTrue("top ${g.top} vs $playT", kotlin.math.abs(g.top - playT) <= tol)
+    }
+
 }

@@ -88,8 +88,15 @@ object CluePipeline {
 
     /** Segmenta pistas con una variante. Coordenadas de rejilla/marcos en píxeles de pantalla. */
     fun segment(px: IntArray, w: Int, h: Int, gl: Int, gt: Int, gr: Int, gb: Int, rfLeft: Int, cfTop: Int, rows: Int, cols: Int, v: Variant): Lines {
-        // región que contiene pistas + rejilla
-        val x0 = maxOf(0, rfLeft); val y0 = maxOf(0, cfTop); val x1 = minOf(w, gr + 2); val y1 = minOf(h, gb + 2)
+        // región que contiene pistas + rejilla. Si no hay marco explícito, se recorta al papel
+        // (evita que el wallpaper o las barras del teléfono contaminen el umbral de tinta).
+        val cell = maxOf(4, (gb - gt) / maxOf(1, rows), (gr - gl) / maxOf(1, cols))
+        val x0 = if (rfLeft > 0) maxOf(0, rfLeft) else {
+            val paper = GridDetect.paperEdge(px, w, gl, gt, gb, true, cell * 12)
+            GridDetect.clueFrameEdge(px, w, paper, gl, gt, gb, cell)
+        }
+        val y0 = if (cfTop > 0) maxOf(0, cfTop) else GridDetect.paperEdge(px, w, gt, gl, gr, false, cell * 12)
+        val x1 = minOf(w, gr + 2); val y1 = minOf(h, gb + 2)
         val s = v.scale
         val (p, pw) = if (s == 1f) px to w else resample(px, w, x0, y0, x1, y1, s).let { it.first to it.second }
         val ox = if (s == 1f) 0 else x0; val oy = if (s == 1f) 0 else y0
@@ -101,7 +108,7 @@ object CluePipeline {
             Segment.rowGlyphs(p, pw, maxOf(0, X(x0)), (T + r * ch).toInt(), L - 3, (T + (r + 1) * ch).toInt(), v.rowInset, v.lo, v.hi)
         }
         val dom = Segment.dominant(rowGl.flatten())
-        val rowG = rowGl.map { Segment.stackRow(Segment.groupRow(it, dom), L, cw) }
+        val rowG = rowGl.map { Segment.stackRow(Segment.groupRow(it, dom, cw), L, cw) }
         val colRaw = (0 until cols).map { c ->
             Segment.colGroupsRaw(p, pw, (L + c * cw).toInt(), maxOf(0, Y(y0)), (L + (c + 1) * cw).toInt(), T - 3, v.colInset, v.lo, v.hi)
         }
@@ -206,6 +213,14 @@ object CluePipeline {
             val dr = HashSet(chk.badRows); val dc = HashSet(chk.badCols)
             lines.rowGroups.forEachIndexed { i, l -> if (l.any { g -> g.glyphs.any { gi[it] in doubtful } }) dr.add(i) }
             lines.colGroups.forEachIndexed { i, l -> if (l.any { g -> g.glyphs.any { gi[it] in doubtful } }) dc.add(i) }
+            // si el borde está tapado, la línea de al lado suele estarlo también (p. ej. tg-1549)
+            if (!chk.ok) {
+                val h = lines.rowGroups.size; val wdt = lines.colGroups.size
+                if (h - 1 in dr) dr.add(h - 2)
+                if (0 in dr) dr.add(1)
+                if (wdt - 1 in dc) dc.add(wdt - 2)
+                if (0 in dc) dc.add(1)
+            }
             val o = Outcome(lines, HashMap(digit), rc, cc, chk, attempts, totalCombos, v, log.toString().trim(),
                 if (chk.ok) emptySet() else dr, if (chk.ok) emptySet() else dc)
             if (chk.ok) return o

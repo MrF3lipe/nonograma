@@ -112,7 +112,10 @@ object Segment {
             if (g.h > (y1 - y0) * 0.95f && g.w > (y1 - y0)) continue // línea/borde
             out.add(g)
         }
-        // trozos de línea vertical (muy estrechos y más altos que los dígitos)
+        // trozos de línea vertical (marco, rejilla): estrechos respecto a la banda, no un "1" real
+        val band = y1 - y0
+        val thin = maxOf(2, (band * 0.14f).toInt())
+        out.removeAll { it.w <= thin && it.h > band * 0.55f }
         if (out.size > 1) {
             val mh = out.map { it.h }.sorted()[out.size / 2]
             out.removeAll { it.w * 6 < it.h && it.h > mh * 1.4f }
@@ -156,7 +159,7 @@ object Segment {
      *  - si los dígitos van pegados, cada glifo es un número, salvo glifos contiguos con un color
      *    destacado distinto del predominante de la línea (p. ej. "10" en amarillo).
      */
-    fun groupRow(gl: List<Glyph>, domIn: Int? = null): List<Group> {
+    fun groupRow(gl: List<Glyph>, domIn: Int? = null, cell: Float = 0f): List<Group> {
         if (gl.isEmpty()) return emptyList()
         val hgt = gl.map { it.h }.sorted()[gl.size / 2].toFloat()
         val gaps = (1 until gl.size).map { gl[it].x0 - gl[it - 1].x1 }
@@ -176,7 +179,9 @@ object Segment {
             val differs = (isNeutral(dom) && chrom) || dist(a.rgb, dom) > 150
             val sameHighlight = chrom && dist(a.rgb, b.rgb) < 140 && differs && dist(b.rgb, dom) > 60 && dist(a.rgb, dom) > 60 && gaps[i - 1] <= hgt * 0.35f
             val tight = spaced && gaps[i - 1] < maxGap * 0.45f
-            if (sameHighlight || tight) { cur.add(b); if (sameHighlight) hl = true }
+            // dos dígitos de un mismo número (10–14) van casi pegados en la misma celda; no unir pistas vecinas
+            val sameCell = cell >= 28f && (b.cx - a.cx) < cell * 0.55f && gaps[i - 1] <= maxOf(1f, minOf(3f, cell * 0.1f))
+            if (sameHighlight || tight || sameCell) { cur.add(b); if (sameHighlight) hl = true }
             else { out.add(Group(cur, avg(cur), hl)); cur = mutableListOf(b); hl = false }
         }
         out.add(Group(cur, avg(cur), hl))

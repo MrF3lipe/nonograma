@@ -17,6 +17,10 @@
 
 Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest).
 
+## 🆕 1.0.16
+
+- Lee bien las pistas en capturas con fondo floral, marco de celdas beige y números de dos cifras (10–14).
+
 ## 🆕 1.0.15
 
 - El solver resuelve puzzles más duros (p. ej. *Domino Logic III* 19×19) y acepta rejillas de hasta 200×200.

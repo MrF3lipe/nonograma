@@ -1,0 +1,16 @@
+title "Synthetic empty clue"
+by "Nonograma test suite"
+copyright "Public domain"
+width 3
+height 2
+
+rows
+3
+0
+
+columns
+1
+1
+1
+
+goal "111000"

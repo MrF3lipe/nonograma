@@ -80,7 +80,7 @@ object ClueLogic {
         val pitch = diffs[diffs.size / 2]
         if (pitch <= 0f) return 0
         val est = (size / pitch).roundToInt()
-        return if (est >= groups.size && est <= groups.size * 2 && est in 2..99) est else 0
+        return if (est >= groups.size && est <= groups.size * 2 && est in 2..Store.MAX_DIM) est else 0
     }
 
     private fun chroma(c: Int): Int {
@@ -188,7 +188,7 @@ object ClueReader {
                 val b = box
                 if (digits.isNotEmpty() && b != null) {
                     val v = digits.toString().toIntOrNull()
-                    if (v != null && v in 0..99) {
+                    if (v != null && v in 0..Store.MAX_DIM) {
                         val sb = toScreen(b)
                         out.add(Token(v, sb.exactCenterX(), sb.exactCenterY(), sb))
                     }

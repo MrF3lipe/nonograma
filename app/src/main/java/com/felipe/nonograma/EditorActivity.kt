@@ -180,7 +180,7 @@ class EditorActivity : Activity() {
     private fun solve(btn: Button) {
         btn.isEnabled = false
         Thread {
-            val st = Store.solveNow(10_000)
+            val st = Store.solveNow()
             runOnUiThread {
                 btn.isEnabled = true
                 Store.save(this)

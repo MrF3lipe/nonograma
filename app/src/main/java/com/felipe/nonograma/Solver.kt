@@ -51,6 +51,9 @@ object Solver {
         return true
     }
 
+    /** Tiempo de búsqueda acorde al tamaño (puzzles duros/grandes necesitan más). */
+    fun timeoutFor(h: Int, w: Int): Long = (12_000L + h.toLong() * w * 6L).coerceIn(12_000L, 90_000L)
+
     fun solve(rows: List<List<Block>>, cols: List<List<Block>>, timeoutMs: Long = 10_000): Result {
         val h = rows.size; val w = cols.size
         val R = rows.map { l -> l.filter { it.len > 0 } }
@@ -145,6 +148,7 @@ object Solver {
 
         fun search(start: IntArray): IntArray? {
             val g = start.copyOf()
+            probeHelps = false; started = false; hint = -1
             if (!propagate(g, BooleanArray(h) { true }, BooleanArray(w) { true })) return null
             return branch(g)
         }
@@ -162,35 +166,130 @@ object Solver {
             return if (propagate(ng, dr, dc)) ng else null
         }
 
-        /** Sondeo (failed-literal): descarta valores que llevan a contradicción tras propagar. */
-        private fun probe(g: IntArray): Boolean {
+        /** Sondeo (failed-literal). Si asigna celdas, se repite en cada nodo; si no, se ramifica por impacto. */
+        private var probeHelps = false
+        private var started = false
+        private var hint = -1
+
+        private fun probe(g: IntArray, thorough: Boolean): Boolean {
+            hint = -1
+            val unknown = ArrayList<Int>()
+            for (i in g.indices) if (Integer.bitCount(g[i]) > 1) unknown.add(i)
+            if (unknown.isEmpty()) return true
+            val budget = if (thorough) Int.MAX_VALUE else when {
+                unknown.size > 2500 -> 300
+                unknown.size > 900 -> 600
+                else -> minOf(1400, unknown.size * 3)
+            }
+            var tries = 0
+            var assigned = 0
             var changed = true
+            var best = -1; var bestScore = -1
             while (changed) {
                 changed = false
-                for (i in g.indices) {
+                for (i in unknown) {
                     if (Integer.bitCount(g[i]) < 2) continue
-                    val ok = options(g[i]).filter { tryValue(g, i, it) != null }
-                    if (ok.isEmpty()) return false
-                    val m = ok.fold(0) { a, b -> a or b }
-                    if (m != g[i]) {
-                        g[i] = m
+                    if (tries >= budget) break
+                    var mask = 0; var maxDed = 0
+                    for (o in options(g[i])) {
+                        tries++
+                        val ng = tryValue(g, i, o) ?: continue
+                        mask = mask or o
+                        var ded = 0
+                        for (k in ng.indices) if (Integer.bitCount(g[k]) > 1 && Integer.bitCount(ng[k]) == 1) ded++
+                        if (ded > maxDed) maxDed = ded
+                    }
+                    if (mask == 0) return false
+                    if (mask != g[i]) {
+                        g[i] = mask
                         val dr = BooleanArray(h); val dc = BooleanArray(w); dr[i / w] = true; dc[i % w] = true
                         if (!propagate(g, dr, dc)) return false
-                        changed = true
-                    }
+                        changed = true; assigned++
+                    } else if (maxDed > bestScore) { bestScore = maxDed; best = i }
                 }
+                if (tries >= budget) break
             }
+            if (assigned > 0) probeHelps = true
+            hint = best
             return true
+        }
+
+        private fun tryLine(g: IntArray, isRow: Boolean, idx: Int, place: IntArray): IntArray? {
+            val ng = g.copyOf()
+            val dr = BooleanArray(h); val dc = BooleanArray(w)
+            if (isRow) {
+                for (c in 0 until w) {
+                    val v = place[c]
+                    if (ng[idx * w + c] and v == 0) return null
+                    if (ng[idx * w + c] != v) { ng[idx * w + c] = v; dc[c] = true }
+                }
+                dr[idx] = true
+            } else {
+                for (r in 0 until h) {
+                    val v = place[r]
+                    if (ng[r * w + idx] and v == 0) return null
+                    if (ng[r * w + idx] != v) { ng[r * w + idx] = v; dr[r] = true }
+                }
+                dc[idx] = true
+            }
+            return if (propagate(ng, dr, dc)) ng else null
+        }
+
+        /** Línea no resuelta con 2..[maxN] colocaciones (contadas en O(n·k)). */
+        private fun fewestLine(g: IntArray, maxN: Int): Triple<Boolean, Int, ArrayList<IntArray>>? {
+            var best: Triple<Boolean, Int, ArrayList<IntArray>>? = null
+            var bestN = maxN + 1
+            val rowBuf = IntArray(w)
+            for (r in 0 until h) {
+                val rl = rowL[r] ?: continue
+                if ((0 until w).all { Integer.bitCount(g[r * w + it]) == 1 }) continue
+                for (c in 0 until w) rowBuf[c] = g[r * w + c]
+                val npl = Solver.countPlacements(rowBuf, rl, rowC[r]!!)
+                if (npl !in 2 until bestN) continue
+                val pls = Solver.listPlacements(rowBuf, rl, rowC[r]!!, npl.toInt()) ?: continue
+                if (pls.size.toLong() != npl) continue
+                bestN = pls.size; best = Triple(true, r, pls)
+                if (bestN == 2) return best
+            }
+            val colBuf = IntArray(h)
+            for (c in 0 until w) {
+                val cl = colL[c] ?: continue
+                if ((0 until h).all { Integer.bitCount(g[it * w + c]) == 1 }) continue
+                for (r in 0 until h) colBuf[r] = g[r * w + c]
+                val npl = Solver.countPlacements(colBuf, cl, colC[c]!!)
+                if (npl !in 2 until bestN) continue
+                val pls = Solver.listPlacements(colBuf, cl, colC[c]!!, npl.toInt()) ?: continue
+                if (pls.size.toLong() != npl) continue
+                bestN = pls.size; best = Triple(false, c, pls)
+                if (bestN == 2) return best
+            }
+            return best
         }
 
         private fun branch(g: IntArray): IntArray? {
             if (System.currentTimeMillis() > deadline) throw Timeout()
             if (g.all { Integer.bitCount(it) == 1 }) return g
-            if (!probe(g)) return null
-            var best = -1; var bestBits = 99
-            for (i in g.indices) {
-                val b = Integer.bitCount(g[i])
-                if (b > 1 && b < bestBits) { best = i; bestBits = b; if (b == 2) break }
+            val first = !started
+            started = true
+            // Raíz: siempre completo. Luego, completo si el sondeo está asignando celdas.
+            val thorough = first || probeHelps
+            if (!probe(g, thorough)) return null
+            if (g.all { Integer.bitCount(it) == 1 }) return g
+            // Si el sondeo no avanza, ramificar por línea (2..5) e impacto; si avanza, MRV clásico.
+            if (!probeHelps) fewestLine(g, 5)?.let { (isRow, idx, pls) ->
+                for (pl in pls) {
+                    val ng = tryLine(g, isRow, idx, pl) ?: continue
+                    branch(ng)?.let { return it }
+                }
+                return null
+            }
+            var best = if (!probeHelps) hint else -1
+            if (best < 0 || Integer.bitCount(g[best]) < 2) {
+                var bestBits = 99; best = -1
+                for (i in g.indices) {
+                    val b = Integer.bitCount(g[i])
+                    if (b > 1 && b < bestBits) { best = i; bestBits = b; if (b == 2) break }
+                }
             }
             if (best < 0) return g
             for (o in options(g[best])) {
@@ -273,5 +372,66 @@ object Solver {
             }
         }
         return B to E
+    }
+
+    /**
+     * Hasta [cap] colocaciones exactas de una línea (cada celda un solo bit).
+     * Devuelve null si hay más de [cap] (demasiadas para ramificar).
+     */
+    /** Número de colocaciones válidas de una línea (tope 1_000_001). */
+    fun countPlacements(cells: IntArray, lens: IntArray, cols: IntArray): Long {
+        val n = cells.size; val k = lens.size
+        val cap = 1_000_001L
+        fun add(a: Long, b: Long): Long { val s = a + b; return if (s < 0L || s > cap) cap else s }
+        val B = Array(k + 1) { LongArray(n + 1) }
+        val E = Array(k + 1) { LongArray(n + 1) }
+        B[0][0] = 1
+        val badPref = Array(k) { j ->
+            val bit = 1 shl cols[j]
+            val p = IntArray(n + 1)
+            for (i in 0 until n) p[i + 1] = p[i] + if (cells[i] and bit == 0) 1 else 0
+            p
+        }
+        for (i in 0..n) for (j in 0..k) {
+            val b = B[j][i]; val e = E[j][i]
+            if (b == 0L && e == 0L) continue
+            if (i < n && cells[i] and 1 != 0) B[j][i + 1] = add(B[j][i + 1], add(b, e))
+            if (j < k) {
+                val L = lens[j]
+                if (i + L <= n && badPref[j][i + L] - badPref[j][i] == 0) {
+                    var ways = b
+                    if (e != 0L && (j == 0 || cols[j - 1] != cols[j])) ways = add(ways, e)
+                    if (ways != 0L) E[j + 1][i + L] = add(E[j + 1][i + L], ways)
+                }
+            }
+        }
+        return add(B[k][n], E[k][n])
+    }
+
+    fun listPlacements(cells: IntArray, lens: IntArray, cols: IntArray, cap: Int): ArrayList<IntArray>? {
+        val n = cells.size
+        val out = ArrayList<IntArray>()
+        val line = IntArray(n)
+        fun rec(i: Int, j: Int, lastColor: Int): Boolean {
+            if (out.size > cap) return false
+            if (j == lens.size) {
+                if ((i until n).all { cells[it] and 1 != 0 }) {
+                    for (t in i until n) line[t] = 1
+                    out.add(line.copyOf())
+                }
+                return true
+            }
+            val L = lens[j]; val c = cols[j]; val bit = 1 shl c
+            val start0 = if (j > 0 && lastColor == c) i + 1 else i
+            for (s in start0..n - L) {
+                if ((i until s).any { cells[it] and 1 == 0 }) break
+                if ((s until s + L).any { cells[it] and bit == 0 }) continue
+                for (t in i until s) line[t] = 1
+                for (t in s until s + L) line[t] = bit
+                if (!rec(s + L, j + 1, c)) return false
+            }
+            return true
+        }
+        return if (rec(0, 0, 0) && out.size <= cap) out else null
     }
 }

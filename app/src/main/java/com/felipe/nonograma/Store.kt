@@ -7,6 +7,8 @@ import org.json.JSONObject
 
 /** Estado persistente: geometría, tamaño de rejilla, pistas, paleta y solución. */
 object Store {
+    /** Máximo de filas/columnas (antes 99; hay nonogramas de 100+). */
+    const val MAX_DIM = 200
     var rows = 15
     var cols = 15
     var colorMode = false
@@ -36,7 +38,7 @@ object Store {
     private var loaded = false
 
     fun resize(r: Int, c: Int) {
-        rows = r.coerceIn(1, 99); cols = c.coerceIn(1, 99)
+        rows = r.coerceIn(1, MAX_DIM); cols = c.coerceIn(1, MAX_DIM)
         while (rowClues.size < rows) rowClues.add(mutableListOf())
         while (rowClues.size > rows) rowClues.removeAt(rowClues.size - 1)
         while (colClues.size < cols) colClues.add(mutableListOf())
@@ -115,7 +117,7 @@ object Store {
     /** Resuelve con las pistas actuales. Devuelve el estado. */
     fun effectiveColor() = when (colorPref) { 1 -> true; 2 -> false; else -> colorMode }
 
-    fun solveNow(timeoutMs: Long = 8000): Solver.Status {
+    fun solveNow(timeoutMs: Long = Solver.timeoutFor(rows, cols)): Solver.Status {
         val rc = rowClues.map { l -> l.map { if (effectiveColor()) it else Block(it.len, 1) } }
         val cc = colClues.map { l -> l.map { if (effectiveColor()) it else Block(it.len, 1) } }
         val r = Solver.solve(rc, cc, timeoutMs)

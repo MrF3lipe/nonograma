@@ -15,3 +15,7 @@ build/
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Lote de webpbn/survey (copyright de sus autores; no se sube)
+puzzles/downloaded/
+

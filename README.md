@@ -17,6 +17,12 @@
 
 Pilla el APK en [Releases](https://github.com/MrF3lipe/nonograma/releases/latest).
 
+## 🆕 1.0.15
+
+- El solver resuelve puzzles más duros (p. ej. *Domino Logic III* 19×19) y acepta rejillas de hasta 200×200.
+- El tiempo de búsqueda crece con el tamaño (de 12 s a 90 s), en vez de cortar a los 8 s.
+- Parser `.non`/XML, fixtures de prueba y un script para bajar la encuesta de webpbn.
+
 ## 🆕 1.0.1
 
 - 🧭 La pantalla principal es un tutorial corto con permisos y botón «Iniciar burbuja»
